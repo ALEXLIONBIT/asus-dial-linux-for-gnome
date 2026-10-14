@@ -96,7 +96,7 @@ def _witch_hat(cr, x, y, r):
 
 
 # ------------------------------------------------------------------ characters (feet at 0, 0; height H; y points up as negative)
-def draw_human(cr, H, t, st, color, rainbow, hat):
+def draw_human(cr, H, t, st, color, rainbow, hat, curly=False):
     walk = st["walk"]
     sw = math.sin(t * 9) * 0.5 if walk else 0.0
     bob = abs(math.sin(t * 9)) * H * 0.018 if walk else math.sin(t * 2) * H * 0.004
@@ -159,9 +159,21 @@ def draw_human(cr, H, t, st, color, rainbow, hat):
     cr.set_line_width(H * 0.01)
     cr.stroke()
     cr.set_source_rgb(*hair)  # hair
-    cr.arc(0, hy - H * 0.01, H * 0.133, math.pi * 1.02, math.pi * 1.98)
-    cr.curve_to(H * 0.1, hy - H * 0.06, -H * 0.02, hy - H * 0.13, -H * 0.133, hy - H * 0.01)
-    cr.fill()
+    if curly:  # a crown of curls
+        cr.arc(0, hy - H * 0.01, H * 0.128, math.pi * 1.0, math.pi * 2.0)
+        cr.fill()
+        for i in range(11):
+            a = math.pi * (1.0 + i / 10)
+            r = H * (0.135 + 0.012 * (i % 2))
+            cr.arc(math.cos(a) * r, hy - H * 0.01 + math.sin(a) * r, H * 0.05, 0, 2 * math.pi)
+            cr.fill()
+        for cx_ in (-0.07, 0.0, 0.07):  # curly fringe
+            cr.arc(cx_ * H, hy - H * 0.1, H * 0.04, 0, 2 * math.pi)
+            cr.fill()
+    else:
+        cr.arc(0, hy - H * 0.01, H * 0.133, math.pi * 1.02, math.pi * 1.98)
+        cr.curve_to(H * 0.1, hy - H * 0.06, -H * 0.02, hy - H * 0.13, -H * 0.133, hy - H * 0.01)
+        cr.fill()
     blink = st["blink"]
     for ex in (-0.045, 0.045):  # eyes
         _ellipse(cr, ex * H, hy, H * 0.017, H * 0.017 * (0.12 if blink else 1))
@@ -290,6 +302,131 @@ def draw_skeleton(cr, H, t, st, color, rainbow, hat):
     ath._skeleton(cr, 0, 0, H, t, 0.0, bone=bone)
     if hat:
         _witch_hat(cr, 0, -H * 0.93, H * 0.17)
+
+
+def draw_claude(cr, H, t, st):
+    """A friendly AI mascot: a soft clay-colored blob with a glowing spark on top."""
+    bob = math.sin(t * 2.2) * H * 0.012
+    clay, light, ink = (0.85, 0.47, 0.34), (0.97, 0.72, 0.56), (0.16, 0.1, 0.1)
+    cr.save()
+    cr.translate(0, -bob)
+    for fx in (-0.1, 0.1):  # little feet
+        _ellipse(cr, fx * H, -H * 0.02, H * 0.08, H * 0.04)
+        cr.set_source_rgb(*ink)
+        cr.fill()
+    for side in (-1, 1):  # arms
+        sx, sy = side * H * 0.24, -H * 0.42
+        if side == 1 and st["wave"]:
+            wv = math.sin(t * 11) * 0.5
+            ex, ey = sx + H * 0.14, sy - H * 0.2
+            _limb(cr, [(sx, sy), (ex + math.sin(wv) * H * 0.03, ey - math.cos(wv) * H * 0.03)], H * 0.07, clay, ink)
+        else:
+            _limb(cr, [(sx, sy), (sx + side * H * 0.08, sy + H * 0.16)], H * 0.07, clay, ink)
+    _ellipse(cr, 0, -H * 0.4, H * 0.27, H * 0.35)  # body
+    g = cairo.RadialGradient(-H * 0.08, -H * 0.55, H * 0.03, 0, -H * 0.4, H * 0.38)
+    g.add_color_stop_rgb(0, *light)
+    g.add_color_stop_rgb(1, *clay)
+    cr.set_source(g)
+    cr.fill_preserve()
+    cr.set_source_rgb(*ink)
+    cr.set_line_width(H * 0.012)
+    cr.stroke()
+    for ex in (-0.09, 0.09):  # eyes
+        _ellipse(cr, ex * H, -H * 0.46, H * 0.028, H * 0.05 * (0.12 if st["blink"] else 1))
+        cr.set_source_rgb(*ink)
+        cr.fill()
+    cr.set_source_rgb(*ink)  # smile
+    cr.set_line_width(H * 0.012)
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    cr.arc(0, -H * 0.4, H * 0.07, math.pi * 0.15, math.pi * 0.85)
+    cr.stroke()
+    cr.set_source_rgba(1, 0.5, 0.45, 0.35)  # cheeks
+    for ex in (-0.15, 0.15):
+        cr.arc(ex * H, -H * 0.38, H * 0.03, 0, 2 * math.pi)
+        cr.fill()
+    cx, cy, r = 0, -H * 0.86, H * 0.1  # the spark
+    gl = cairo.RadialGradient(cx, cy, 0, cx, cy, r * 2.2)
+    gl.add_color_stop_rgba(0, 1, 0.8, 0.45, 0.8)
+    gl.add_color_stop_rgba(1, 1, 0.8, 0.45, 0)
+    cr.set_source(gl)
+    cr.arc(cx, cy, r * 2.2, 0, 2 * math.pi)
+    cr.fill()
+    cr.save()
+    cr.translate(cx, cy)
+    cr.rotate(t * 0.8)
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    cr.set_line_width(r * 0.28)
+    cr.set_source_rgb(0.95, 0.5, 0.25)
+    for i in range(8):
+        a = i * math.pi / 4
+        cr.move_to(math.cos(a) * r * 0.25, math.sin(a) * r * 0.25)
+        cr.line_to(math.cos(a) * r, math.sin(a) * r)
+    cr.stroke()
+    cr.restore()
+    cr.restore()
+
+
+def _say(cr, text, tip_x, tip_y, px, t_local, w_max, fill, border, tcol, cps=14.0):
+    """A speech bubble whose tail tip is at (tip_x, tip_y); the text is typed letter by letter."""
+    layout = PangoCairo.create_layout(cr)
+    fd = Pango.FontDescription("Sans Bold")
+    fd.set_absolute_size(px * Pango.SCALE)
+    layout.set_font_description(fd)
+    layout.set_text(text, -1)
+    tw, th = layout.get_pixel_size()
+    padx, pady = px * 0.7, px * 0.5
+    bw, bh = tw + 2 * padx, th + 2 * pady
+    bx = max(4, min(w_max - bw - 4, tip_x - bw * 0.3))
+    by = tip_y - px * 1.2 - bh
+    pop = _ease_back(max(0.0, min(1.0, t_local / 0.3)))
+    cr.save()
+    cr.translate(tip_x, tip_y)
+    cr.scale(pop, pop)
+    cr.translate(-tip_x, -tip_y)
+    ath._rounded(cr, bx, by, bw, bh, px * 0.8)
+    cr.move_to(tip_x - px * 0.5, by + bh - 2)
+    cr.line_to(tip_x, tip_y)
+    cr.line_to(tip_x + px * 0.5, by + bh - 2)
+    cr.set_source_rgba(*fill)
+    cr.fill_preserve()
+    cr.set_source_rgb(*border)
+    cr.set_line_width(max(2.0, px * 0.1))
+    cr.stroke()
+    n = int(max(0.0, t_local - 0.3) * cps)
+    layout.set_text(text[:n] + ("▌" if n < len(text) else ""), -1)
+    cr.set_source_rgb(*tcol)
+    cr.move_to(bx + padx, by + pady)
+    PangoCairo.show_layout(cr, layout)
+    cr.restore()
+
+
+DUO_PERIOD = 9.0
+
+
+def draw_duo(cr, t, w, h, say_human, say_ai, theme=None):
+    """Ale (a human with red clothes and curly hair) and Claude (an AI) greet each other in speech bubbles."""
+    t = t % DUO_PERIOD
+    H, ground = h * 0.5, h * 0.94
+    st_h = {"walk": False, "wave": 0.4 < t < 3.6, "blink": (t % 2.8) < 0.13, "bow": 0.0}
+    st_c = {"walk": False, "wave": 3.2 < t < 7.0, "blink": ((t + 1.1) % 3.1) < 0.13, "bow": 0.0}
+    cr.save()
+    cr.translate(w * 0.27, ground)
+    draw_human(cr, H, t, st_h, "#e02424", False, False, curly=True)
+    cr.restore()
+    cr.save()
+    cr.translate(w * 0.73, ground)
+    draw_claude(cr, H, t, st_c)
+    cr.restore()
+    fill, border, tcol = (1, 1, 1, 0.97), (0.2, 0.2, 0.3), (0.1, 0.1, 0.18)
+    fade = 1.0 if t < DUO_PERIOD - 0.6 else max(0.0, (DUO_PERIOD - t) / 0.6)
+    px = max(12.0, h * 0.075)
+    cr.push_group()
+    if t >= 0.6:
+        _say(cr, say_human, w * 0.27 + H * 0.12, ground - H * 1.13, px, t - 0.6, w, fill, (0.85, 0.15, 0.15), tcol)
+    if t >= 3.4:
+        _say(cr, say_ai, w * 0.73 - H * 0.05, ground - H * 1.1, px, t - 3.4, w, fill, (0.9, 0.5, 0.25), tcol)
+    cr.pop_group_to_source()
+    cr.paint_with_alpha(fade)
 
 
 def draw_image(cr, H, t, st, surf):

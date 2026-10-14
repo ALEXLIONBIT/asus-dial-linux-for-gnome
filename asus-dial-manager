@@ -118,6 +118,17 @@ STR = {
     "bad_image": ("This file could not be opened as an image.", "No se pudo abrir este archivo como imagen.",
                   "Impossibile aprire questo file come immagine."),
     "images": ("Images", "Imágenes", "Immagini"),
+    "tab_about": ("About", "Información", "Informazioni"),
+    "about_made": ("Created by ALEXLIONBIT (human) together with Claude (an AI assistant made by Anthropic).",
+                   "Creado por ALEXLIONBIT (humano) junto con Claude (un asistente de IA hecho por Anthropic).",
+                   "Creato da ALEXLIONBIT (umano) insieme a Claude (un assistente AI creato da Anthropic)."),
+    "about_repo": ("Repository", "Repositorio", "Repository"),
+    "about_license": ("License", "Licencia", "Licenza"),
+    "about_license_text": ("All rights reserved — this is not open-source software. The code can be read on GitHub, but you may not copy, modify, redistribute or reuse it without the author's written permission.",
+                           "Todos los derechos reservados — este no es software de código abierto. El código se puede leer en GitHub, pero no se puede copiar, modificar, redistribuir ni reutilizar sin el permiso escrito del autor.",
+                           "Tutti i diritti riservati — non è software open source. Il codice si può leggere su GitHub, ma non si può copiare, modificare, ridistribuire o riutilizzare senza il permesso scritto dell'autore."),
+    "say_human": ("Hi, I'm Ale!", "¡Hola, soy Ale!", "Ciao, sono Ale!"),
+    "say_ai": ("Hi, I'm Claude!", "¡Hola, soy Claude!", "Ciao, sono Claude!"),
     "cfg_file": ("Settings file: {path}", "Archivo de ajustes: {path}", "File delle impostazioni: {path}"),
 }
 MOD_MASKS = ((Gdk.ModifierType.CONTROL_MASK, "ctrl"), (Gdk.ModifierType.SHIFT_MASK, "shift"),
@@ -330,7 +341,7 @@ class Manager(Gtk.Window):
 
     # ---------------------------------------------------------------- UI
     def build(self):
-        for attr in ("tick_id", "wtick_id"):
+        for attr in ("tick_id", "wtick_id", "atick_id"):
             if getattr(self, attr, 0):
                 GLib.source_remove(getattr(self, attr))
                 setattr(self, attr, 0)
@@ -341,6 +352,7 @@ class Manager(Gtk.Window):
         nb.append_page(self.build_modes_tab(), Gtk.Label(label=self.tr("tab_modes")))
         nb.append_page(self.build_look_tab(), Gtk.Label(label=self.tr("tab_look")))
         nb.append_page(self.build_general_tab(), Gtk.Label(label=self.tr("tab_general")))
+        nb.append_page(self.build_about_tab(), Gtk.Label(label=self.tr("tab_about")))
         self.root = nb
         self.add(nb)
         self.show_all()
@@ -772,6 +784,39 @@ class Manager(Gtk.Window):
         path.get_style_context().add_class("dim-label")
         page.pack_end(path, False, False, 0)
         return page
+
+    REPO_URL = "https://github.com/ALEXLIONBIT/asus-dial-linux-for-gnome"
+
+    def build_about_tab(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, border_width=16)
+        title = Gtk.Label(xalign=0)
+        title.set_markup("<span size='x-large' weight='bold'>ASUS Dial Linux for GNOME</span>")
+        page.pack_start(title, False, False, 0)
+        page.pack_start(Gtk.Label(label=self.tr("about_made"), xalign=0, wrap=True), False, False, 0)
+        area = Gtk.DrawingArea()
+        area.set_size_request(560, 300)
+        area.set_vexpand(True)
+        self.at0 = time.monotonic()
+        area.connect("draw", self.on_draw_about)
+        page.pack_start(area, True, True, 0)
+        self.atick_id = GLib.timeout_add(40, lambda: (area.queue_draw(), True)[1])
+        row = Gtk.Box(spacing=8)
+        row.pack_start(Gtk.Label(label=self.tr("about_repo") + ":", xalign=0), False, False, 0)
+        row.pack_start(Gtk.LinkButton.new_with_label(self.REPO_URL, self.REPO_URL), False, False, 0)
+        page.pack_start(row, False, False, 0)
+        lic = Gtk.Label(xalign=0, wrap=True)
+        lic.set_markup(f"<b>{GLib.markup_escape_text(self.tr('about_license'))}:</b> {GLib.markup_escape_text(self.tr('about_license_text'))}")
+        page.pack_start(lic, False, False, 0)
+        return page
+
+    def on_draw_about(self, area, cr):
+        w, h = area.get_allocated_width(), area.get_allocated_height()
+        g = cairo.LinearGradient(0, 0, 0, h)
+        g.add_color_stop_rgb(0, 0.22, 0.26, 0.36)
+        g.add_color_stop_rgb(1, 0.12, 0.14, 0.2)
+        cr.set_source(g)
+        cr.paint()
+        chars.draw_duo(cr, time.monotonic() - self.at0, w, h, self.tr("say_human"), self.tr("say_ai"))
 
     def set_welcome(self, key, value):
         if getattr(self, "_wloading", True):

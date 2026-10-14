@@ -1,0 +1,12 @@
+# Personal settings and files of whoever runs the dial: never commit these
+config.json
+*.night.json
+background-*.png
+character-*.png
+asus-dial.lang
+asus-dial.tool
+asus-dial.ai
+.config/
+__pycache__/
+*.pyc
+*.bak

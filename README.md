@@ -6,7 +6,7 @@
 
 # English
 
-Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with GNOME, with an on-screen radial menu and 18 modes.
+Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with GNOME, with an on-screen radial menu and 19 modes.
 
 The kernel creates no input device for the dial. This program reads the raw data from `hidraw`, turns it into actions (scroll, volume, zoom…) and shows a menu and messages on screen.
 
@@ -39,6 +39,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 | ↔ **Arrows** | left / right arrow keys | Enter |
 | 🎲 **Dice** | picks the die (d4…d20) | rolls it, with an animation |
 | 🏠 **House** | tilts a picture (see below) | – |
+| 🤖 **AI** | picks the level: Low (MiniCPM5-2B), Medium (Llama 3.1 8B), High (DeepSeek-R1-Distill-Qwen-14B) | robot animation, then a terminal opens a chat with that model |
 | ✨ **Rickroll** | – | a divine light show, then your default browser opens the video full screen |
 | 🌐 **Language** | cycles English → Español → Italiano (default: English) | shows the current language |
 | ⏻ **Power off** | keep rotating clockwise to arm a 5-second shutdown countdown | – |
@@ -48,6 +49,8 @@ The kernel creates no input device for the dial. This program reads the raw data
 **Timer.** When time is up the system alarm sound plays and a giant 🍅 splats on your screen for 10 seconds, with a random message ("Timer expired!", "Completed!", "Finished!" or "BOO!", in the chosen language). Click the dial to stop it.
 
 **Rickroll.** Click the dial in this mode: the screen dims, golden rays and sparkles fill it with heavenly light, the lyrics appear and, in a blinding white flash, your default browser opens a famous 1987 music video and puts it **full screen** (it presses `K` if autoplay was blocked, then `F`, so it needs a YouTube page; press `Esc` to leave). Change the video by editing `RICKROLL_URL` at the top of the `asus-dial` file.
+
+**AI.** Rotate to pick the level, click to open a chat with a **local** model (nothing goes to the internet except the downloads): *Low* = MiniCPM5-2B (1.6 GB), *Medium* = Llama 3.1 8B (4.9 GB), *High* = DeepSeek-R1-Distill-Qwen-14B (9 GB, thinks before answering). A robot appears on screen and a terminal runs `asus-dial-ai`, which: (1) installs [Ollama](https://ollama.com) for your user only in `~/.local/ollama` if it is missing (no sudo, checksum verified, asks first); (2) downloads the model if missing (asks first and tells you the size); (3) starts the server tuned to put as much of the model as possible in the GPU's VRAM (flash attention, 8-bit cache, 4096-token context); (4) shows where the model is running (`ollama ps`) and opens the chat. Without a working GPU driver everything runs on the CPU, which is much slower. On an NVIDIA hybrid laptop with the GPU switched off, `sudo prime-select on-demand` and a reboot enable it. Models are stored in `~/.ollama`.
 
 **Language.** Menu, messages and timer texts are in **English by default**. The *Language* mode switches between English, Spanish and Italian; the choice is saved in `~/.config/asus-dial.lang`. To add a language, add it to `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` and add a column to every entry of `STR` in the `asus-dial` file.
 
@@ -59,13 +62,14 @@ The kernel creates no input device for the dial. This program reads the raw data
 
 ```bash
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
-                 wireplumber x11-utils pulseaudio-utils xdg-utils
+                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd
 ```
 
 - `wireplumber` (the `wpctl` command): volume.
 - `x11-utils` (the `xprop` command): to tell whether the active window is a browser.
 - `pulseaudio-utils` (the `paplay` command): timer sound.
 - `xdg-utils`: opens the default browser.
+- `gnome-terminal`, `curl`, `zstd`: for the AI mode (terminal, downloads, unpacking Ollama).
 
 ### 2. Permissions (once)
 
@@ -85,8 +89,8 @@ Then **log out and back in** (or reboot) so the `input` group takes effect.
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial ~/.local/bin/asus-dial
-chmod +x ~/.local/bin/asus-dial
+cp asus-dial asus-dial-ai ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
 ```
 
 To try it right away, from a terminal: `~/.local/bin/asus-dial`.
@@ -136,9 +140,11 @@ Everything is at the top of the `asus-dial` file: mode names and icons (`NAMES`,
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial
-rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
+# optional, to also remove Ollama and the downloaded models:
+rm -rf ~/.local/ollama ~/.ollama
 ```
 
 ## How it works (in short)
@@ -155,7 +161,7 @@ To be chosen by the author.
 
 # Español
 
-Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con GNOME, con un menú circular en pantalla y 18 modos.
+Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con GNOME, con un menú circular en pantalla y 19 modos.
 
 El kernel no crea ningún dispositivo de entrada para la rueda. Este programa lee los datos en bruto de `hidraw`, los convierte en acciones (desplazar, volumen, zoom…) y muestra un menú y mensajes en pantalla.
 
@@ -188,6 +194,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | ↔ **Flechas** | teclas de flecha izquierda / derecha | Intro |
 | 🎲 **Dado** | elige el dado (d4…d20) | lo tira, con animación |
 | 🏠 **Casa** | inclina una imagen (ver abajo) | – |
+| 🤖 **IA** | elige el nivel: Bajo (MiniCPM5-2B), Medio (Llama 3.1 8B), Alto (DeepSeek-R1-Distill-Qwen-14B) | animación de un robot y se abre un terminal con un chat con ese modelo |
 | ✨ **Rickroll** | – | un espectáculo de luz divina y luego tu navegador predeterminado abre el vídeo a pantalla completa |
 | 🌐 **Idioma** | cambia entre English → Español → Italiano (por defecto: English) | muestra el idioma actual |
 | ⏻ **Apagar** | sigue girando en sentido horario para activar una cuenta atrás de 5 segundos | – |
@@ -197,6 +204,8 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 **Temporizador.** Al terminar el tiempo suena la alarma del sistema y un 🍅 gigante se estrella contra la pantalla durante 10 segundos, con un mensaje al azar («¡Temporizador agotado!», «¡Completado!», «¡Terminado!» o «¡BU!», en el idioma elegido). Un clic en la rueda lo detiene.
 
 **Rickroll.** Haz clic en la rueda en este modo: la pantalla se oscurece, rayos dorados y destellos la llenan de luz celestial, aparece la letra y, con un destello blanco cegador, tu navegador predeterminado abre un famoso videoclip de 1987 y lo pone a **pantalla completa** (pulsa `K` si la reproducción automática estaba bloqueada y luego `F`, así que necesita una página de YouTube; pulsa `Esc` para salir). Para cambiar el vídeo, edita `RICKROLL_URL` al principio del archivo `asus-dial`.
+
+**IA.** Gira para elegir el nivel y haz clic para abrir un chat con un modelo **local** (no sale nada a internet salvo las descargas): *Bajo* = MiniCPM5-2B (1,6 GB), *Medio* = Llama 3.1 8B (4,9 GB), *Alto* = DeepSeek-R1-Distill-Qwen-14B (9 GB, piensa antes de responder). Aparece un robot en pantalla y un terminal ejecuta `asus-dial-ai`, que: (1) instala [Ollama](https://ollama.com) solo para tu usuario en `~/.local/ollama` si falta (sin sudo, con suma de comprobación y preguntando antes); (2) descarga el modelo si falta (pregunta antes e indica el tamaño); (3) arranca el servidor configurado para poner en la VRAM de la GPU la mayor parte posible del modelo (flash attention, caché de 8 bits, contexto de 4096 tokens); (4) muestra dónde se ejecuta el modelo (`ollama ps`) y abre el chat. Sin un controlador de GPU que funcione todo va en la CPU, bastante más lento. En un portátil híbrido NVIDIA con la GPU apagada, `sudo prime-select on-demand` y reiniciar la activan. Los modelos se guardan en `~/.ollama`.
 
 **Idioma.** El menú, los mensajes y los textos del temporizador están en **inglés por defecto**. El modo *Idioma* cambia entre inglés, español e italiano; la elección se guarda en `~/.config/asus-dial.lang`. Para añadir un idioma, añádelo a `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` y añade una columna a cada entrada de `STR` en el archivo `asus-dial`.
 
@@ -208,13 +217,14 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 
 ```bash
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
-                 wireplumber x11-utils pulseaudio-utils xdg-utils
+                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd
 ```
 
 - `wireplumber` (comando `wpctl`): volumen.
 - `x11-utils` (comando `xprop`): para saber si la ventana activa es un navegador.
 - `pulseaudio-utils` (comando `paplay`): sonido del temporizador.
 - `xdg-utils`: abre el navegador predeterminado.
+- `gnome-terminal`, `curl`, `zstd`: para el modo IA (terminal, descargas, descomprimir Ollama).
 
 ### 2. Permisos (una sola vez)
 
@@ -234,8 +244,8 @@ Después **cierra la sesión y vuelve a entrar** (o reinicia) para que se apliqu
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial ~/.local/bin/asus-dial
-chmod +x ~/.local/bin/asus-dial
+cp asus-dial asus-dial-ai ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
 ```
 
 Para probarlo enseguida, desde una terminal: `~/.local/bin/asus-dial`.
@@ -285,9 +295,11 @@ Todo está al principio del archivo `asus-dial`: nombres e iconos de los modos (
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial
-rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
+# opcional, para quitar también Ollama y los modelos descargados:
+rm -rf ~/.local/ollama ~/.ollama
 ```
 
 ## Cómo funciona (resumen)
@@ -304,7 +316,7 @@ Por elegir por el autor.
 
 # Italiano
 
-Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con GNOME, con un menu circolare a schermo e 18 modalità.
+Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con GNOME, con un menu circolare a schermo e 19 modalità.
 
 Il kernel non crea nessun dispositivo di input per la manopola. Questo programma legge i dati grezzi da `hidraw`, li trasforma in azioni (scorrere, volume, zoom…) e mostra un menu e dei messaggi a schermo.
 
@@ -337,6 +349,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | ↔ **Frecce** | tasti freccia sinistra / destra | Invio |
 | 🎲 **Dado** | sceglie il dado (d4…d20) | tira, con animazione |
 | 🏠 **Casa** | inclina un'immagine (vedi sotto) | – |
+| 🤖 **AI** | sceglie il livello: Basso (MiniCPM5-2B), Medio (Llama 3.1 8B), Alto (DeepSeek-R1-Distill-Qwen-14B) | animazione di un robot, poi si apre un terminale con la chat con quel modello |
 | ✨ **Rickroll** | – | uno spettacolo di luce divina, poi il browser predefinito apre il video a schermo intero |
 | 🌐 **Lingua** | passa da English → Español → Italiano (predefinita: English) | mostra la lingua attuale |
 | ⏻ **Arresta** | ruotando a lungo in senso orario spegne il PC dopo un conto alla rovescia di 5 secondi | – |
@@ -346,6 +359,8 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 **Timer.** Alla fine suona la sveglia di sistema e un 🍅 gigante si spiaccica sullo schermo per 10 secondi, con una scritta a caso («Timer scaduto!», «Completato!», «Finito!», «BOO!», nella lingua scelta). Un clic sulla manopola ferma tutto.
 
 **Rickroll.** Clicca la manopola in questa modalità: lo schermo si oscura, raggi dorati e scintille lo riempiono di luce divina, compare il testo della canzone e, con un lampo bianco accecante, il browser predefinito apre un famoso video musicale del 1987 e lo mette a **schermo intero** (preme `K` se la riproduzione automatica era bloccata, poi `F`, quindi serve una pagina di YouTube; premi `Esc` per uscire). Per cambiare il video modifica `RICKROLL_URL` in cima al file `asus-dial`.
+
+**AI.** Ruota per scegliere il livello e clicca per aprire una chat con un modello **locale** (niente esce su internet a parte i download): *Basso* = MiniCPM5-2B (1,6 GB), *Medio* = Llama 3.1 8B (4,9 GB), *Alto* = DeepSeek-R1-Distill-Qwen-14B (9 GB, ragiona prima di rispondere). Compare un robot sullo schermo e un terminale esegue `asus-dial-ai`, che: (1) installa [Ollama](https://ollama.com) solo per il tuo utente in `~/.local/ollama` se manca (senza sudo, con checksum verificato e chiedendo prima); (2) scarica il modello se manca (chiede prima e dice quanto pesa); (3) avvia il server impostato per mettere più modello possibile nella VRAM della scheda video (flash attention, cache a 8 bit, contesto di 4096 token); (4) mostra dove gira il modello (`ollama ps`) e apre la chat. Senza un driver della GPU funzionante tutto gira sul processore, molto più lento. Su un portatile ibrido NVIDIA con la GPU spenta, `sudo prime-select on-demand` e un riavvio la attivano. I modelli stanno in `~/.ollama`.
 
 **Lingua.** Menu, messaggi e testi del timer sono in **inglese per impostazione predefinita**. La modalità *Lingua* passa tra inglese, spagnolo e italiano; la scelta viene salvata in `~/.config/asus-dial.lang`. Per aggiungere una lingua, aggiungila a `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` e aggiungi una colonna a ogni voce di `STR` nel file `asus-dial`.
 
@@ -357,13 +372,14 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 
 ```bash
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
-                 wireplumber x11-utils pulseaudio-utils xdg-utils
+                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd
 ```
 
 - `wireplumber` (comando `wpctl`): volume.
 - `x11-utils` (comando `xprop`): per capire se la finestra attiva è un browser.
 - `pulseaudio-utils` (comando `paplay`): suono del timer.
 - `xdg-utils`: apre il browser predefinito.
+- `gnome-terminal`, `curl`, `zstd`: per la modalità AI (terminale, download, estrazione di Ollama).
 
 ### 2. Permessi (una volta sola)
 
@@ -383,8 +399,8 @@ Poi **esci e rientra dalla sessione** (o riavvia) perché il gruppo `input` veng
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial ~/.local/bin/asus-dial
-chmod +x ~/.local/bin/asus-dial
+cp asus-dial asus-dial-ai ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
 ```
 
 Per provarlo subito, da terminale: `~/.local/bin/asus-dial`.
@@ -434,9 +450,11 @@ Tutto è in cima al file `asus-dial`: nomi e icone delle modalità (`NAMES`, `IC
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial
-rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
+# facoltativo, per togliere anche Ollama e i modelli scaricati:
+rm -rf ~/.local/ollama ~/.ollama
 ```
 
 ## Come funziona (in breve)

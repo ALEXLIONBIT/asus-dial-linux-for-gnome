@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# asus-dial-ai: opened by the ASUS Dial "AI" mode inside a terminal.
+# Makes sure Ollama and the chosen model are installed, then opens a chat with it.
+#   usage: asus-dial-ai low|mid|high
+# low = MiniCPM5-2B, mid = Llama 3.1 8B, high = DeepSeek-R1-Distill-Qwen-14B.
+# Ollama is installed for your user only (no sudo) in ~/.local/ollama. Nothing big is downloaded without asking.
+set -u
+
+level="${1:-low}"
+case "$level" in
+  low)  tag="openbmb/minicpm5-2b"; name="MiniCPM5-2B";                  size="1.6 GB" ;;
+  mid)  tag="llama3.1:8b";         name="Llama 3.1 8B";                 size="4.9 GB" ;;
+  high) tag="deepseek-r1:14b";     name="DeepSeek-R1-Distill-Qwen-14B"; size="9.0 GB" ;;
+  *) echo "usage: $0 low|mid|high"; exit 2 ;;
+esac
+
+OLLAMA_HOME="$HOME/.local/ollama"
+OLLAMA_URL="https://github.com/ollama/ollama/releases/latest/download"
+LOG="$HOME/.cache/asus-dial-ollama.log"
+
+# ---- language (same file the dial uses; English by default) ----
+lang="$(cat "$HOME/.config/asus-dial.lang" 2>/dev/null || echo en)"
+case "$lang" in es|it) ;; *) lang=en ;; esac
+t() {  # t key [args]  -> message in the chosen language
+  local k="$1"; shift
+  case "$lang:$k" in
+    en:title)    printf '🤖 ASUS Dial AI — %s' "$1" ;;
+    es:title)    printf '🤖 ASUS Dial IA — %s' "$1" ;;
+    it:title)    printf '🤖 ASUS Dial AI — %s' "$1" ;;
+    en:ask_ollama) printf 'Ollama (the program that runs AI models) is not installed.\nInstall it for your user only in %s? (about 1.4 GB download) [y/N] ' "$1" ;;
+    es:ask_ollama) printf 'Ollama (el programa que ejecuta modelos de IA) no está instalado.\n¿Instalarlo solo para tu usuario en %s? (descarga de unos 1,4 GB) [s/N] ' "$1" ;;
+    it:ask_ollama) printf 'Ollama (il programma che esegue i modelli AI) non è installato.\nInstallarlo solo per il tuo utente in %s? (download di circa 1,4 GB) [s/N] ' "$1" ;;
+    en:ask_model) printf 'The model %s is not downloaded yet (%s).\nDownload it now? [y/N] ' "$1" "$2" ;;
+    es:ask_model) printf 'El modelo %s todavía no está descargado (%s).\n¿Descargarlo ahora? [s/N] ' "$1" "$2" ;;
+    it:ask_model) printf 'Il modello %s non è ancora scaricato (%s).\nScaricarlo ora? [s/N] ' "$1" "$2" ;;
+    en:cancel)   echo 'Cancelled. Nothing was downloaded.' ;;
+    es:cancel)   echo 'Cancelado. No se descargó nada.' ;;
+    it:cancel)   echo 'Annullato. Non è stato scaricato niente.' ;;
+    en:dl)       echo 'Downloading Ollama…' ;;
+    es:dl)       echo 'Descargando Ollama…' ;;
+    it:dl)       echo 'Scarico Ollama…' ;;
+    en:checksum_bad) echo 'The checksum does not match: download discarded.' ;;
+    es:checksum_bad) echo 'La suma de comprobación no coincide: descarga descartada.' ;;
+    it:checksum_bad) echo 'Il checksum non coincide: download scartato.' ;;
+    en:installed) echo 'Ollama installed.' ;;
+    es:installed) echo 'Ollama instalado.' ;;
+    it:installed) echo 'Ollama installato.' ;;
+    en:fail)     echo 'Something went wrong (details above).' ;;
+    es:fail)     echo 'Algo salió mal (detalles arriba).' ;;
+    it:fail)     echo 'Qualcosa è andato storto (dettagli sopra).' ;;
+    en:starting) echo 'Starting the Ollama server…' ;;
+    es:starting) echo 'Iniciando el servidor de Ollama…' ;;
+    it:starting) echo 'Avvio il server di Ollama…' ;;
+    en:gpu_ok)   printf 'GPU found: %s — Ollama will put as much of the model as fits in its VRAM.\n' "$1" ;;
+    es:gpu_ok)   printf 'GPU encontrada: %s — Ollama pondrá en su VRAM todo lo que quepa del modelo.\n' "$1" ;;
+    it:gpu_ok)   printf 'GPU trovata: %s — Ollama metterà nella sua VRAM tutta la parte del modello che ci sta.\n' "$1" ;;
+    en:gpu_off)  echo 'An NVIDIA GPU is present but its driver is not active, so the model will run on the CPU (slower).'
+                 echo 'To use it: sudo prime-select on-demand   and then reboot.' ;;
+    es:gpu_off)  echo 'Hay una GPU NVIDIA pero su controlador no está activo, así que el modelo irá en la CPU (más lento).'
+                 echo 'Para usarla: sudo prime-select on-demand   y reinicia.' ;;
+    it:gpu_off)  echo 'C'"'"'è una GPU NVIDIA ma il suo driver non è attivo, quindi il modello girerà sulla CPU (più lento).'
+                 echo 'Per usarla: sudo prime-select on-demand   e poi riavvia.' ;;
+    en:cpu)      echo 'No usable GPU: the model will run on the CPU.' ;;
+    es:cpu)      echo 'No hay GPU utilizable: el modelo irá en la CPU.' ;;
+    it:cpu)      echo 'Nessuna GPU utilizzabile: il modello girerà sulla CPU.' ;;
+    en:loading)  printf 'Loading %s…\n' "$1" ;;
+    es:loading)  printf 'Cargando %s…\n' "$1" ;;
+    it:loading)  printf 'Carico %s…\n' "$1" ;;
+    en:where)    echo 'Where the model runs (PROCESSOR column):' ;;
+    es:where)    echo 'Dónde se ejecuta el modelo (columna PROCESSOR):' ;;
+    it:where)    echo 'Dove gira il modello (colonna PROCESSOR):' ;;
+    en:chat)     echo 'Chat ready. Type your question. /bye to leave.' ;;
+    es:chat)     echo 'Chat listo. Escribe tu pregunta. /bye para salir.' ;;
+    it:chat)     echo 'Chat pronta. Scrivi la tua domanda. /bye per uscire.' ;;
+    en:enter)    printf 'Press Enter to close…' ;;
+    es:enter)    printf 'Pulsa Intro para cerrar…' ;;
+    it:enter)    printf 'Premi Invio per chiudere…' ;;
+  esac
+}
+yes() {  # yes "answer"
+  case "${1,,}" in y|yes|s|si|sì) return 0 ;; *) return 1 ;; esac
+}
+finish() { echo; t enter; read -r _; exit "${1:-0}"; }
+
+t title "$name"; echo; echo
+
+# ---- 1. Ollama ----
+ollama_bin="$(command -v ollama || true)"
+[ -z "$ollama_bin" ] && [ -x "$OLLAMA_HOME/bin/ollama" ] && ollama_bin="$OLLAMA_HOME/bin/ollama"
+if [ -z "$ollama_bin" ]; then
+  t ask_ollama "$OLLAMA_HOME"; read -r ans
+  yes "$ans" || { t cancel; finish 1; }
+  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+  t dl
+  curl -fL --progress-bar -o "$tmp/ollama.tar.zst" "$OLLAMA_URL/ollama-linux-amd64.tar.zst" \
+    && curl -fsL -o "$tmp/sha256sum.txt" "$OLLAMA_URL/sha256sum.txt" || { t fail; finish 1; }
+  want="$(awk '$2 == "./ollama-linux-amd64.tar.zst" || $2 == "ollama-linux-amd64.tar.zst" {print $1}' "$tmp/sha256sum.txt")"
+  have="$(sha256sum "$tmp/ollama.tar.zst" | awk '{print $1}')"
+  [ -n "$want" ] && [ "$want" = "$have" ] || { t checksum_bad; finish 1; }
+  mkdir -p "$OLLAMA_HOME" && tar --zstd -xf "$tmp/ollama.tar.zst" -C "$OLLAMA_HOME" || { t fail; finish 1; }
+  ollama_bin="$OLLAMA_HOME/bin/ollama"
+  t installed
+fi
+
+# ---- 2. GPU hint ----
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+  t gpu_ok "$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1)"
+elif lspci 2>/dev/null | grep -qi nvidia; then
+  t gpu_off
+else
+  t cpu
+fi
+
+# ---- 3. server (as much as possible on the GPU: flash attention, compact cache, modest context) ----
+if ! curl -fs http://127.0.0.1:11434/ >/dev/null 2>&1; then
+  t starting
+  mkdir -p "$(dirname "$LOG")"
+  OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_CONTEXT_LENGTH=4096 \
+    nohup "$ollama_bin" serve >"$LOG" 2>&1 &
+  for _ in $(seq 1 40); do curl -fs http://127.0.0.1:11434/ >/dev/null 2>&1 && break; sleep 0.5; done
+  curl -fs http://127.0.0.1:11434/ >/dev/null 2>&1 || { t fail; echo "(log: $LOG)"; finish 1; }
+fi
+
+# ---- 4. model ----
+if ! "$ollama_bin" show "$tag" >/dev/null 2>&1; then
+  t ask_model "$name" "$size"; read -r ans
+  yes "$ans" || { t cancel; finish 1; }
+  "$ollama_bin" pull "$tag" || { t fail; finish 1; }
+fi
+
+# ---- 5. load it, show where it runs, chat ----
+t loading "$name"
+"$ollama_bin" run "$tag" "" </dev/null >/dev/null 2>&1
+t where; "$ollama_bin" ps; echo
+t chat; echo
+"$ollama_bin" run "$tag"
+finish 0

@@ -1,0 +1,1248 @@
+#!/usr/bin/env python3
+"""ASUS Dial (I2C HID 0B05:0220, ProArt StudioBook) driver with on-screen menu.
+
+The kernel creates no input device for the dial's "System Multi-Axis
+Controller" collection, so we read raw reports from hidraw (id 1: byte1 bit0 =
+button, bytes2-3 = int16 LE rotation, ~8-10 units per physical detent) and act on
+them ourselves:
+
+  * rotate: drives the current tool (see TOOLS); an OSD shows the result
+  * short click: the tool's action (play/pause, mute, ...)
+  * long press: opens the radial menu; rotate to pick a tool, then click to
+    confirm (or hold, rotate and release)
+"""
+import argparse, fcntl, glob, json, math, os, random, struct, subprocess, time
+
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, PangoCairo
+import cairo
+
+HID_ID = "0018:00000B05:00000220"
+EV_SYN, EV_KEY, EV_REL = 0, 1, 2
+REL_X, REL_Y, REL_WHEEL, REL_WHEEL_HI_RES = 0, 1, 8, 0x0B
+BTN_LEFT, BTN_MIDDLE = 0x110, 0x112
+KEY_0, KEY_ENTER, KEY_LEFTCTRL, KEY_PAGEUP, KEY_LEFT, KEY_RIGHT, KEY_PAGEDOWN, KEY_PLAYPAUSE = 11, 28, 29, 104, 105, 106, 109, 164
+KEY_F, KEY_TAB, KEY_LEFTSHIFT, KEY_LEFTALT, KEY_F3, KEY_COMMA, KEY_DOT = 33, 15, 42, 56, 61, 51, 52
+KEYS = (BTN_LEFT, BTN_MIDDLE, KEY_0, KEY_ENTER, KEY_LEFTCTRL, KEY_PAGEUP, KEY_LEFT, KEY_RIGHT, KEY_PAGEDOWN, KEY_PLAYPAUSE,
+        KEY_F, KEY_TAB, KEY_LEFTSHIFT, KEY_LEFTALT, KEY_F3, KEY_COMMA, KEY_DOT)
+
+MENU_TIMEOUT_MS = 10000
+MENU_SIZE = 560
+HOLD_MS = 350
+PRESS_ROTATE_UNITS = 5  # total travel while pressed that opens the menu (net is noisy under pressure)
+SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT = range(16)
+NAMES = ["Scorri", "Volume", "Luminosità", "Zoom", "Video", "Schede", "Frecce", "Casa", "Arresta",
+         "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera"]
+ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨"]
+MENU_ORDER = [SCROLL, VOLUME, BRIGHT, KEYLIGHT, NIGHT, ZOOM, VIDEO, SPEED, TIMER, TABS, FIND, WINDOWS, ARROWS, DICE, HOUSE, POWER]
+HOUSE_IMAGE = os.path.expanduser("~/Immagini/casa.png")  # any picture you like
+HOUSE_WIDTH = 640  # px on screen
+HOUSE_DEG_PER_UNIT = 2.0  # the picture tilts with the dial
+POWER_ARM_UNITS = 45  # ~5 detents clockwise to arm the shutdown
+POWER_COUNTDOWN_S = 5
+POWER_GRACE_S = 0.8
+POWER_CMD = ["systemctl", "poweroff"]
+STATE_FILE = os.path.expanduser("~/.config/asus-dial.tool")
+BROWSER_ONLY = {TABS, FIND}  # tools shown/usable only while a browser has the focus
+BROWSER_CLASSES = ("firefox", "chrome", "chromium", "brave", "vivaldi", "opera", "msedge", "microsoft-edge",
+                   "librewolf", "epiphany", "zen", "floorp", "waterfox", "tor browser")
+FOCUS_CACHE_S = 0.3
+MAG_STEP = 0.25  # screen magnifier factor per zoom step
+MAG_MAX = 16.0
+KEYLIGHT_LEVELS = 3  # the ASUS keyboard backlight has levels 0..3
+DICE_SIDES = (4, 6, 8, 10, 12, 20)
+DICE_ROLL_S, DICE_SHOW_S = 1.6, 3.8
+TIMER_MAX = 180  # minutes
+TIMER_MESSAGES = ("Timer scaduto!", "Completato!", "Finito!", "BOO!")
+TOMATO_S = 10.0
+ALARM_SOUND = "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
+SPEED_MIN, SPEED_MAX, SPEED_STEP = 0.25, 3.0, 0.25
+NIGHT_MIN, NIGHT_MAX, NIGHT_STEP = 1700, 4700, 200
+NIGHT_STATE = os.path.expanduser("~/.config/asus-dial.night.json")
+ALT_RELEASE_MS = 1200  # idle time after which the window switcher confirms
+RICKROLL_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+RICKROLL_COOLDOWN_S = 60  # don't open a new tab on every detent
+
+
+def _IOW(nr, size):
+    return (1 << 30) | (size << 16) | (ord("U") << 8) | nr
+
+
+UI_SET_EVBIT, UI_SET_KEYBIT, UI_SET_RELBIT = _IOW(100, 4), _IOW(101, 4), _IOW(102, 4)
+UI_DEV_SETUP, UI_DEV_CREATE = _IOW(3, 92), (ord("U") << 8) | 1
+
+
+def find_hidraw():
+    for uevent in glob.glob("/sys/class/hidraw/hidraw*/device/uevent"):
+        with open(uevent) as f:
+            if f"HID_ID={HID_ID}" in f.read():
+                return "/dev/" + uevent.split("/")[4]
+    return None
+
+
+class Uinput:
+    def __init__(self):
+        self.fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+        for ev in (EV_KEY, EV_REL):
+            fcntl.ioctl(self.fd, UI_SET_EVBIT, ev)
+        for k in KEYS:
+            fcntl.ioctl(self.fd, UI_SET_KEYBIT, k)
+        for r in (REL_X, REL_Y, REL_WHEEL, REL_WHEEL_HI_RES):
+            fcntl.ioctl(self.fd, UI_SET_RELBIT, r)
+        fcntl.ioctl(self.fd, UI_DEV_SETUP, struct.pack("<HHHH80sI", 0x18, 0x0B05, 0x0220, 1, b"ASUS Dial", 0))
+        fcntl.ioctl(self.fd, UI_DEV_CREATE)
+
+    def emit(self, *events):
+        data = b"".join(struct.pack("<qqHHi", 0, 0, t, c, v) for t, c, v in events)
+        os.write(self.fd, data + struct.pack("<qqHHi", 0, 0, EV_SYN, 0, 0))
+
+    def tap(self, key, ctrl=False, shift=False):
+        mods = [m for m, on in ((KEY_LEFTCTRL, ctrl), (KEY_LEFTSHIFT, shift)) if on]
+        for m in mods:
+            self.emit((EV_KEY, m, 1))
+        self.emit((EV_KEY, key, 1))
+        self.emit((EV_KEY, key, 0))
+        for m in reversed(mods):
+            self.emit((EV_KEY, m, 0))
+
+
+def text(cr, s, size, x, y, center=True):
+    """Draw text with Pango (glyph fallback for emoji/symbols); y is the vertical centre."""
+    layout = PangoCairo.create_layout(cr)
+    layout.set_font_description(Pango.FontDescription(f"Sans {size}"))
+    layout.set_text(s, -1)
+    w, h = layout.get_pixel_size()
+    cr.move_to(x - w / 2 if center else x, y - h / 2)
+    PangoCairo.show_layout(cr, layout)
+
+
+def ease_out(u):
+    return 1 - (1 - u) ** 3
+
+
+def outlined_text(cr, s, px, x, y):
+    """Big white bold text with a dark outline, centred on x, y (px = pixel height)."""
+    layout = PangoCairo.create_layout(cr)
+    fd = Pango.FontDescription("Sans Bold")
+    fd.set_absolute_size(px * Pango.SCALE)
+    layout.set_font_description(fd)
+    layout.set_text(s, -1)
+    w, h = layout.get_pixel_size()
+    cr.move_to(x - w / 2, y - h / 2)
+    PangoCairo.layout_path(cr, layout)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    cr.set_line_width(max(2.0, px * 0.12))
+    cr.set_source_rgba(0, 0, 0, 0.85)
+    cr.stroke_preserve()
+    cr.set_source_rgba(1, 1, 1, 1)
+    cr.fill()
+
+
+def draw_tomato_body(cr, r):
+    cr.save()
+    cr.scale(1.05, 1.0)
+    g = cairo.RadialGradient(-0.35 * r, -0.4 * r, 0.1 * r, 0, 0, 1.05 * r)
+    g.add_color_stop_rgb(0.0, 1.0, 0.45, 0.35)
+    g.add_color_stop_rgb(0.45, 0.88, 0.12, 0.08)
+    g.add_color_stop_rgb(1.0, 0.5, 0.03, 0.05)
+    cr.arc(0, 0.04 * r, r, 0, 2 * math.pi)
+    cr.set_source(g)
+    cr.fill()
+    cr.restore()
+    cr.save()  # shine
+    cr.translate(-0.45 * r, -0.38 * r)
+    cr.rotate(-0.7)
+    cr.scale(0.2 * r, 0.1 * r)
+    cr.arc(0, 0, 1, 0, 2 * math.pi)
+    cr.restore()
+    cr.set_source_rgba(1, 1, 1, 0.42)
+    cr.fill()
+    cr.save()  # calyx
+    cr.translate(0, -0.9 * r)
+    cr.new_path()
+    for i in range(10):
+        a = -math.pi / 2 + i * math.pi / 5
+        rad = 0.38 * r if i % 2 == 0 else 0.12 * r
+        px, py = rad * math.cos(a) * 1.3, rad * math.sin(a) * 0.55
+        (cr.move_to if i == 0 else cr.line_to)(px, py)
+    cr.close_path()
+    cr.set_source_rgb(0.18, 0.62, 0.2)
+    cr.fill_preserve()
+    cr.set_source_rgb(0.1, 0.4, 0.12)
+    cr.set_line_width(0.015 * r)
+    cr.stroke()
+    cr.rectangle(-0.04 * r, -0.22 * r, 0.08 * r, 0.22 * r)
+    cr.set_source_rgb(0.3, 0.45, 0.15)
+    cr.fill()
+    cr.restore()
+
+
+def make_tomato_draw(msg):
+    """A tomato flies at the screen, splats, drips; msg pops up over it. t in seconds."""
+    rnd = random.Random()
+    splats = [(rnd.uniform(0, 2 * math.pi), rnd.uniform(0.6, 1.4), rnd.uniform(0.03, 0.11)) for _ in range(28)]
+    drips = [(rnd.uniform(0.1, 0.9), rnd.uniform(0.1, 0.55), rnd.uniform(0.04, 0.1), rnd.uniform(0.04, 0.12)) for _ in range(9)]
+    t_fly = 0.45
+
+    def draw(cr, t, w, h):
+        fade = 1.0 if t < TOMATO_S - 1.0 else max(0.0, TOMATO_S - t)
+        r = h * 0.46
+        cx, cy = w / 2, h * 0.52
+        cr.push_group()
+        if t >= t_fly:
+            dt = t - t_fly
+            grow = min(1.0, dt / 0.12)
+            for ang, dist, size in splats:  # juice on the "glass"
+                cr.arc(cx + math.cos(ang) * dist * r * 1.05, cy + math.sin(ang) * dist * r, size * r * grow, 0, 2 * math.pi)
+                cr.set_source_rgba(0.8, 0.05, 0.07, 0.9)
+                cr.fill()
+        cr.save()
+        if t < t_fly:
+            u = t / t_fly
+            sc = 0.05 + 0.95 * u * u
+            cr.translate(cx + (1 - u) ** 2 * w * 0.35, cy + (1 - u) ** 2 * h * 0.45)
+            cr.rotate((1 - u) * math.radians(900))
+            cr.scale(sc, sc)
+        else:
+            k = math.exp(-(t - t_fly) * 5) * math.cos((t - t_fly) * 26)
+            cr.translate(cx, cy)
+            cr.scale(1 + 0.32 * k, 1 - 0.28 * k)
+        draw_tomato_body(cr, r)
+        cr.restore()
+        if t >= t_fly + 0.15:
+            for fx, fy, speed, width in drips:  # drips running down
+                length = min(h * 0.5, (t - t_fly - 0.15) * speed * h)
+                x, y0, lw = fx * w, fy * h, width * r * 0.35
+                cr.set_line_cap(cairo.LINE_CAP_ROUND)
+                cr.set_line_width(lw)
+                cr.set_source_rgba(0.75, 0.04, 0.06, 0.88)
+                cr.move_to(x, y0)
+                cr.line_to(x, y0 + length)
+                cr.stroke()
+                cr.arc(x, y0 + length, lw * 0.7, 0, 2 * math.pi)
+                cr.fill()
+        if t >= t_fly + 0.1:
+            u = min(1.0, (t - t_fly - 0.1) / 0.25)
+            outlined_text(cr, msg, h * 0.14 * (0.3 + 0.7 * ease_out(u)), cx, cy)
+            outlined_text(cr, "clic sulla manopola per fermare", h * 0.03, cx, cy + h * 0.17)
+        cr.pop_group_to_source()
+        cr.paint_with_alpha(fade)
+
+    return draw
+
+
+PIPS = {1: [(0, 0)], 2: [(-1, -1), (1, 1)], 3: [(-1, -1), (0, 0), (1, 1)],
+        4: [(-1, -1), (1, -1), (-1, 1), (1, 1)], 5: [(-1, -1), (1, -1), (0, 0), (-1, 1), (1, 1)],
+        6: [(-1, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (1, 1)]}
+POLY_SIDES = {4: 3, 8: 4, 10: 5, 12: 8, 20: 6}
+
+
+def draw_die(cr, sides, value):
+    if sides == 6:
+        half, rad = 66, 22
+        cr.new_sub_path()
+        for ccx, ccy, a0 in ((half - rad, -half + rad, -90), (half - rad, half - rad, 0), (-half + rad, half - rad, 90), (-half + rad, -half + rad, 180)):
+            cr.arc(ccx, ccy, rad, math.radians(a0), math.radians(a0 + 90))
+        cr.close_path()
+        g = cairo.LinearGradient(-half, -half, half, half)
+        g.add_color_stop_rgb(0, 1, 1, 1)
+        g.add_color_stop_rgb(1, 0.82, 0.85, 0.9)
+        cr.set_source(g)
+        cr.fill_preserve()
+        cr.set_source_rgb(0.2, 0.2, 0.25)
+        cr.set_line_width(4)
+        cr.stroke()
+        for gx, gy in PIPS[value]:
+            cr.arc(gx * 33, gy * 33, 11, 0, 2 * math.pi)
+            cr.set_source_rgb(0.1, 0.1, 0.15)
+            cr.fill()
+        return
+    n = POLY_SIDES[sides]
+    off = math.pi / 4 if n == 4 else -math.pi / 2
+    for i in range(n):
+        a = off + i * 2 * math.pi / n
+        (cr.move_to if i == 0 else cr.line_to)(80 * math.cos(a), 80 * math.sin(a))
+    cr.close_path()
+    g = cairo.LinearGradient(-80, -80, 80, 80)
+    g.add_color_stop_rgb(0, 0.45, 0.5, 1.0)
+    g.add_color_stop_rgb(1, 0.2, 0.18, 0.65)
+    cr.set_source(g)
+    cr.fill_preserve()
+    cr.set_source_rgb(1, 1, 1)
+    cr.set_line_width(4)
+    cr.stroke()
+    outlined_text(cr, str(value), 56, 0, 12 if n == 3 else 0)
+
+
+def make_dice_draw(sides, result):
+    """A die tumbles and bounces, the number flickers and slows, then settles on result."""
+    base = random.randrange(1 << 30)
+    direction = random.choice((-1, 1))
+
+    def draw(cr, t, w, h):
+        u = min(1.0, t / DICE_ROLL_S)
+        ground = h * 0.6
+        height = 150 * (1 - u) ** 1.4 * abs(math.sin(u * math.pi * 3.2))
+        angle = direction * (1 - ease_out(u)) * math.radians(1260)
+        squash = 1 - 0.4 * (1 - u) * abs(math.sin(u * 17))
+        if t < DICE_ROLL_S * 0.85:
+            value = random.Random(base + int(t * (22 - 10 * u))).randint(1, sides)
+        else:
+            value = result
+        pulse = 1 + 0.08 * math.sin(min(1.0, (t - DICE_ROLL_S) / 0.25) * math.pi) if t > DICE_ROLL_S else 1.0
+        fade = 1.0 if t < DICE_SHOW_S - 0.4 else max(0.0, (DICE_SHOW_S - t) / 0.4)
+        cr.push_group()
+        sh = max(0.2, 1 - height / 260)  # shadow
+        cr.save()
+        cr.translate(w / 2, ground + 72)
+        cr.scale(80 * sh, 14 * sh)
+        cr.arc(0, 0, 1, 0, 2 * math.pi)
+        cr.restore()
+        cr.set_source_rgba(0, 0, 0, 0.35 * sh)
+        cr.fill()
+        cr.save()
+        cr.translate(w / 2, ground - height)
+        cr.scale(pulse, pulse)
+        cr.rotate(angle)
+        cr.scale(squash, 1)
+        draw_die(cr, sides, value)
+        cr.restore()
+        if t >= DICE_ROLL_S:
+            outlined_text(cr, f"d{sides}  →  {result}", 34, w / 2, h * 0.93)
+        cr.pop_group_to_source()
+        cr.paint_with_alpha(fade)
+
+    return draw
+
+
+class AnimWindow(Gtk.Window):
+    """Transparent, click-through, always-on-top window that redraws a callback draw_fn(cr, t, w, h)."""
+
+    def __init__(self):
+        super().__init__(type=Gtk.WindowType.POPUP)
+        self.set_app_paintable(True)
+        self.set_visual(self.get_screen().get_rgba_visual())
+        self.set_keep_above(True)
+        self.set_decorated(False)
+        self.set_skip_taskbar_hint(True)
+        self.set_accept_focus(False)
+        self.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
+        self.connect("draw", self._on_draw)
+        self.connect("realize", lambda w: w.get_window().input_shape_combine_region(cairo.Region(), 0, 0))
+        self.draw_fn = None
+        self.t0 = 0.0
+        self.duration = 0.0
+        self.tick_id = 0
+        self.on_done = None
+
+    def play(self, draw_fn, duration_s, size=None, where="center", fps=60, on_done=None):
+        """size None = whole monitor; duration_s 0 = until stop(); where: center | topright | full."""
+        self.stop()
+        display = self.get_screen().get_display()
+        g = (display.get_primary_monitor() or display.get_monitor(0)).get_geometry()
+        w, h = size or (g.width, g.height)
+        x = g.x + (g.width - w) // 2
+        y = g.y + (g.height - h) // 2
+        if where == "topright":
+            x, y = g.x + g.width - w - 24, g.y + 110
+        self.resize(w, h)
+        self.move(x, y)
+        self.draw_fn, self.duration, self.on_done = draw_fn, duration_s, on_done
+        self.t0 = GLib.get_monotonic_time() / 1e6
+        self.show_all()
+        self.queue_draw()
+        self.tick_id = GLib.timeout_add(int(1000 / fps), self._tick)
+
+    def _tick(self):
+        if self.duration and GLib.get_monotonic_time() / 1e6 - self.t0 >= self.duration:
+            self.tick_id = 0
+            cb = self.on_done
+            self.stop()
+            if cb:
+                cb()
+            return False
+        self.queue_draw()
+        return True
+
+    def stop(self):
+        if self.tick_id:
+            GLib.source_remove(self.tick_id)
+            self.tick_id = 0
+        self.draw_fn = self.on_done = None
+        self.hide()
+
+    def _on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        if self.draw_fn:
+            self.draw_fn(cr, GLib.get_monotonic_time() / 1e6 - self.t0, self.get_allocated_width(), self.get_allocated_height())
+
+
+class Overlay(Gtk.Window):
+    """Transparent, click-through, always-on-top window drawing menu or OSD."""
+
+    on_menu_timeout = None
+
+    def __init__(self):
+        super().__init__(type=Gtk.WindowType.POPUP)
+        self.set_app_paintable(True)
+        self.set_visual(self.get_screen().get_rgba_visual())
+        self.set_keep_above(True)
+        self.set_decorated(False)
+        self.set_skip_taskbar_hint(True)
+        self.set_accept_focus(False)
+        self.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
+        self.connect("draw", self.on_draw)
+        self.connect("realize", lambda w: w.get_window().input_shape_combine_region(cairo.Region(), 0, 0))
+        self.kind = None  # "menu" | "osd"
+        self.sel = 0  # index into items
+        self.items = list(range(len(NAMES)))  # tool ids shown in the menu
+        self.label = ""
+        self.value = None  # 0..1 or None
+        self.hide_id = 0
+        self.image = None  # GdkPixbuf shown by kind == "image"
+        self.angle = 0.0
+
+    def show_for(self, kind, timeout_ms):
+        self.kind = kind
+        if kind == "menu":
+            w = h = MENU_SIZE
+        elif kind == "image":
+            w = h = int(math.hypot(self.image.get_width(), self.image.get_height())) + 20
+        else:
+            w, h = 360, 110
+        self.resize(w, h)
+        display = self.get_screen().get_display()
+        mon = display.get_primary_monitor() or display.get_monitor(0)
+        g = mon.get_geometry()
+        x = g.x + (g.width - w) // 2
+        y = g.y + (g.height - h) // 2 if kind != "osd" else g.y + g.height - h - 120
+        self.move(x, y)
+        self.show_all()
+        self.queue_draw()
+        if self.hide_id:
+            GLib.source_remove(self.hide_id)
+        self.hide_id = GLib.timeout_add(timeout_ms, self._timeout)
+
+    def _timeout(self):
+        self.hide_id = 0
+        self.hide()
+        if self.kind == "menu" and self.on_menu_timeout:
+            self.on_menu_timeout()
+        return False
+
+    def close_overlay(self):
+        if self.hide_id:
+            GLib.source_remove(self.hide_id)
+            self.hide_id = 0
+        self.hide()
+
+    def on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        if self.kind == "menu":
+            self.draw_menu(cr)
+        elif self.kind == "image":
+            self.draw_image(cr)
+        else:
+            self.draw_osd(cr)
+
+    def draw_image(self, cr):
+        iw, ih = self.image.get_width(), self.image.get_height()
+        cr.translate(self.get_allocated_width() / 2, self.get_allocated_height() / 2)
+        cr.rotate(math.radians(self.angle))
+        cr.translate(-iw / 2, -ih / 2)
+        cr.rectangle(-6, -6, iw + 12, ih + 12)  # white frame
+        cr.set_source_rgb(1, 1, 1)
+        cr.fill()
+        Gdk.cairo_set_source_pixbuf(cr, self.image, 0, 0)
+        cr.paint()
+
+    def draw_menu(self, cr):
+        cx = cy = MENU_SIZE / 2
+        r_out, r_in, r_txt = cx - 10, 105, 192
+        n = len(self.items)
+        cr.set_source_rgba(0.08, 0.08, 0.1, 0.88)
+        cr.arc(cx, cy, cx - 5, 0, 2 * math.pi)
+        cr.fill()
+        for i in range(n):
+            a0 = -math.pi / 2 + (i - 0.5) * 2 * math.pi / n
+            a1 = a0 + 2 * math.pi / n
+            cr.new_path()
+            cr.arc(cx, cy, r_out, a0 + 0.02, a1 - 0.02)
+            cr.arc_negative(cx, cy, r_in, a1 - 0.02, a0 + 0.02)
+            cr.close_path()
+            if i == self.sel:
+                cr.set_source_rgba(0.25, 0.55, 1.0, 0.95)
+            else:
+                cr.set_source_rgba(1, 1, 1, 0.08)
+            cr.fill()
+            am = (a0 + a1) / 2
+            tx, ty = cx + r_txt * math.cos(am), cy + r_txt * math.sin(am)
+            cr.set_source_rgba(1, 1, 1, 1)
+            text(cr, ICONS[self.items[i]], 20, tx, ty - 11)
+            text(cr, NAMES[self.items[i]], 9, tx, ty + 17)
+        cr.set_source_rgba(1, 1, 1, 0.9)
+        text(cr, NAMES[self.items[self.sel]], 13, cx, cy)
+
+    def draw_osd(self, cr):
+        w, h, r = 360, 110, 22
+        cr.new_sub_path()
+        cr.arc(w - r, r, r, -math.pi / 2, 0)
+        cr.arc(w - r, h - r, r, 0, math.pi / 2)
+        cr.arc(r, h - r, r, math.pi / 2, math.pi)
+        cr.arc(r, r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.set_source_rgba(0.08, 0.08, 0.1, 0.88)
+        cr.fill()
+        cr.set_source_rgba(1, 1, 1, 1)
+        has_bar = self.value is not None
+        text(cr, self.label, 15, 24, 34 if has_bar else h / 2, center=False)
+        if has_bar:
+            cr.set_source_rgba(1, 1, 1, 0.2)
+            cr.rectangle(24, 66, w - 48, 12)
+            cr.fill()
+            cr.set_source_rgba(0.25, 0.55, 1.0, 1)
+            cr.rectangle(24, 66, (w - 48) * max(0.0, min(1.0, self.value)), 12)
+            cr.fill()
+
+
+class Dial:
+    # dial units needed per step of each tool; one physical detent is ~8-10 units
+    STEP = {SCROLL: 6, VOLUME: 8, BRIGHT: 8, ZOOM: 8, VIDEO: 8, TABS: 8, ARROWS: 8,
+            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8}
+
+    def __init__(self, args):
+        self.args = args
+        self.sign = 1 if args.invert else -1  # default: clockwise = scroll down / more
+        self.ui = Uinput()
+        self.overlay = Overlay()
+        self.overlay.on_menu_timeout = lambda: setattr(self, "menu_open", False)
+        self.tool = self.load_tool()
+        self.menu_open = False
+        self.acc = 0.0
+        self.wheel_acc = 0.0
+        self.detent_acc = 0
+        self.last_rot = 0.0
+        self.last_btn = 0
+        self.power_seen = 0.0
+        self.power_started = 0.0
+        self.hold_id = 0
+        self.power_progress = 0.0
+        self.power_left = 0
+        self.power_id = 0
+        self.press_travel = 0
+        self.hold_fired = False
+        self.hold_moved = False
+        self.swallow_release = False
+        self.bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+        self.focus_checked = -1.0
+        self.rickrolled = -RICKROLL_COOLDOWN_S
+        self.dice_win, self.tomato_win, self.chip_win = AnimWindow(), AnimWindow(), AnimWindow()
+        self.dice_idx = DICE_SIDES.index(6)
+        self.timer_minutes, self.timer_end, self.timer_id = 5, 0.0, 0
+        self.alarm_proc = None
+        self.speed = 1.0
+        self.keylight_last = KEYLIGHT_LEVELS
+        self.alt_down, self.alt_id = False, 0
+        self.color = self._settings("org.gnome.settings-daemon.plugins.color")
+        self.focus_browser = False
+        self.mag_apps = self._settings("org.gnome.desktop.a11y.applications")
+        self.mag = self._settings("org.gnome.desktop.a11y.magnifier")
+        self.watch_id = 0
+        self.connect_hid()
+
+    # --- persistence ---
+    def load_tool(self):
+        try:
+            return int(open(STATE_FILE).read()) % len(NAMES)
+        except (OSError, ValueError):
+            return SCROLL
+
+    def save_tool(self):
+        try:
+            os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+            with open(STATE_FILE, "w") as f:
+                f.write(str(self.tool))
+        except OSError:
+            pass
+
+    # --- hid plumbing ---
+    def connect_hid(self):
+        path = find_hidraw()
+        if path is None:
+            GLib.timeout_add_seconds(2, self.connect_hid)
+            return False
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        self.watch_id = GLib.io_add_watch(fd, GLib.IO_IN | GLib.IO_ERR | GLib.IO_HUP, self.on_hid)
+        return False
+
+    def on_hid(self, fd, cond):
+        if not cond & GLib.IO_IN:
+            return self.hid_lost(fd)
+        try:
+            while True:
+                data = os.read(fd, 64)
+                if len(data) >= 4 and data[0] == 1:
+                    self.on_report(data[1] & 1, struct.unpack_from("<h", data, 2)[0])
+        except BlockingIOError:
+            return True
+        except OSError:
+            return self.hid_lost(fd)
+
+    def hid_lost(self, fd):
+        os.close(fd)
+        GLib.timeout_add_seconds(2, self.connect_hid)
+        return False
+
+    # --- button / hold handling ---
+    def on_report(self, btn, delta):
+        if delta:
+            self.rotate(delta)
+        if btn == self.last_btn:
+            return
+        self.last_btn = btn
+        if btn:
+            self.button_down()
+        else:
+            self.button_up()
+
+    def button_down(self):
+        self.hold_fired = False
+        self.hold_moved = False
+        self.swallow_release = False
+        self.acc = 0.0
+        self.press_travel = 0
+        if self.alarm_proc or self.tomato_win.tick_id:  # any press silences the timer alarm
+            self.stop_alarm()
+            self.swallow_release = True
+            return
+        if self.power_id:
+            self.cancel_power()
+            self.swallow_release = True
+            return
+        if self.menu_open:  # click while the menu is open confirms the highlighted tool
+            self.confirm_menu()
+            self.swallow_release = True
+            return
+        self.hold_id = GLib.timeout_add(HOLD_MS, self.hold_timeout)
+
+    def hold_timeout(self):
+        self.hold_id = 0
+        self.hold_fired = True
+        self.open_menu()
+        return False
+
+    def button_up(self):
+        if self.swallow_release:
+            self.swallow_release = False
+            self.hold_fired = False
+            return
+        if self.hold_id:  # released before the hold threshold: short click
+            GLib.source_remove(self.hold_id)
+            self.hold_id = 0
+            self.click()
+        elif self.hold_fired and self.menu_open and self.hold_moved:
+            self.confirm_menu()  # hold, rotate, release
+        self.hold_fired = False
+
+    def open_menu(self):
+        self.release_alt()
+        self.menu_open = True
+        self.acc = 0.0
+        self.overlay.items = self.available_tools()
+        tool = self.effective_tool()
+        self.overlay.sel = self.overlay.items.index(tool) if tool in self.overlay.items else 0
+        self.overlay.show_for("menu", MENU_TIMEOUT_MS)
+
+    def confirm_menu(self):
+        self.menu_open = False
+        self.acc = 0.0
+        self.tool = self.overlay.items[self.overlay.sel]
+        self.power_progress = 0.0
+        self.save_tool()
+        self.overlay.close_overlay()
+        self.show_label(f"{ICONS[self.tool]} {NAMES[self.tool]}")
+
+    # --- rotation ---
+    def rotate(self, delta):
+        now = GLib.get_monotonic_time() / 1e6
+        if now - self.last_rot > 0.7:  # drop leftover partial steps after a pause
+            self.acc = self.wheel_acc = 0.0
+        self.last_rot = now
+        if self.power_id:  # rotation cancels a running countdown, after a grace period for the arming swing
+            if now - self.power_started > POWER_GRACE_S:
+                self.cancel_power()
+            return
+        if self.menu_open:
+            self.acc += delta
+            steps = int(self.acc / self.args.menu_step)
+            if steps:
+                self.acc -= steps * self.args.menu_step
+                self.overlay.sel = (self.overlay.sel - steps * self.sign) % len(self.overlay.items)
+                self.hold_moved = self.hold_moved or bool(self.last_btn)
+                self.overlay.show_for("menu", MENU_TIMEOUT_MS)
+            return
+        if self.last_btn and self.hold_id:  # press + rotate opens the menu (a tiny wobble must not)
+            self.press_travel += abs(delta)
+            if self.press_travel >= PRESS_ROTATE_UNITS:
+                GLib.source_remove(self.hold_id)
+                self.hold_id = 0
+                self.hold_fired = True
+                self.open_menu()
+                self.hold_moved = True
+            return
+        tool = self.effective_tool()
+        if tool == ZOOM and not self.in_browser():
+            self.rotate_magnifier(delta)  # outside the browser: real screen zoom
+            return
+        if tool in (SCROLL, ZOOM):
+            self.rotate_wheel(delta, tool)
+            return
+        if tool == HOUSE:
+            self.show_house(delta)
+            return
+        if tool == POWER:
+            self.rotate_power(delta, now)
+            return
+        self.acc += delta
+        step = self.STEP[tool]
+        steps = int(self.acc / step)
+        if steps:
+            self.acc -= steps * step
+            self.step_tool(tool, -self.sign * steps)  # >0 = clockwise (by default)
+
+    def rotate_wheel(self, delta, tool):
+        zoom = tool == ZOOM
+        self.wheel_acc += delta * (-self.sign if zoom else self.sign) * 120 / self.STEP[tool]
+        whole = int(self.wheel_acc)
+        if not whole:
+            return
+        self.wheel_acc -= whole
+        if zoom:
+            self.ui.emit((EV_KEY, KEY_LEFTCTRL, 1))
+        events = [(EV_REL, REL_WHEEL_HI_RES, whole)]
+        self.detent_acc += whole
+        ticks = int(self.detent_acc / 120)
+        if ticks:
+            self.detent_acc -= ticks * 120
+            events.append((EV_REL, REL_WHEEL, ticks))
+        self.ui.emit(*events)
+        if zoom:
+            self.ui.emit((EV_KEY, KEY_LEFTCTRL, 0))
+        self.show_label(f"{ICONS[tool]} {NAMES[tool]}")
+
+    def step_tool(self, tool, d):
+        n = abs(d)
+        if tool == VOLUME:
+            subprocess.run(["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", f"{2 * n}%{'+' if d > 0 else '-'}"])
+            self.show_volume()
+        elif tool == BRIGHT:
+            self.set_brightness(max(1, min(100, self.get_brightness() + (2 * n if d > 0 else -2 * n))))
+            self.show_brightness()
+        elif tool == VIDEO:
+            if not self.mpris("Seek", GLib.Variant("(x)", (5_000_000 * d,))):
+                if self.rickroll():
+                    return
+                for _ in range(n):
+                    self.ui.tap(KEY_RIGHT if d > 0 else KEY_LEFT)
+            self.show_label(f"▶ Video  {'⏩' if d > 0 else '⏪'} {5 * n} s")
+        elif tool == TABS:
+            for _ in range(n):
+                self.ui.tap(KEY_PAGEDOWN if d > 0 else KEY_PAGEUP, ctrl=True)
+            self.show_label(f"🗂 Scheda {'successiva' if d > 0 else 'precedente'}")
+        elif tool == ARROWS:
+            for _ in range(n):
+                self.ui.tap(KEY_RIGHT if d > 0 else KEY_LEFT)
+            self.show_label(f"↔ {'→' if d > 0 else '←'}")
+        elif tool == DICE:
+            self.dice_idx = max(0, min(len(DICE_SIDES) - 1, self.dice_idx + d))
+            self.show_label(f"🎲 Dado d{DICE_SIDES[self.dice_idx]}  (clic per tirare)", self.dice_idx / (len(DICE_SIDES) - 1))
+        elif tool == TIMER:
+            self.timer_step(d)
+        elif tool == SPEED:
+            self.set_speed(self.speed + d * SPEED_STEP)
+        elif tool == NIGHT:
+            self.night_step(d)
+        elif tool == WINDOWS:
+            self.windows_step(d)
+        elif tool == KEYLIGHT:
+            self.set_keylight(self.get_keylight() + d)
+        elif tool == FIND:
+            for _ in range(n):
+                self.ui.tap(KEY_F3, shift=d < 0)
+            self.show_label(f"🔎 Risultato {'successivo' if d > 0 else 'precedente'}")
+
+    # --- short click action per tool ---
+    def click(self):
+        tool = self.effective_tool()
+        if tool == SCROLL:
+            self.ui.tap(BTN_MIDDLE)
+            self.show_label("↕ Click centrale")
+        elif tool == VOLUME:
+            subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+            self.show_volume()
+        elif tool == ZOOM:
+            if self.in_browser():
+                self.ui.tap(KEY_0, ctrl=True)
+            else:
+                self.set_magnifier(1.0)
+            self.show_label("🔍 Zoom 100%")
+        elif tool == VIDEO:
+            if not self.mpris("PlayPause"):
+                if self.rickroll():
+                    return
+                self.ui.tap(KEY_PLAYPAUSE)
+            self.show_label("▶ Play / Pausa")
+        elif tool == POWER:
+            self.power_progress = 0.0
+            self.show_label("⏻ Ruota in senso orario per arrestare", 0.0)
+        elif tool == ARROWS:
+            self.ui.tap(KEY_ENTER)
+            self.show_label("↔ Invio")
+        elif tool == DICE:
+            self.roll_dice()
+        elif tool == TIMER:
+            self.timer_click()
+        elif tool == SPEED:
+            self.set_speed(1.0)
+        elif tool == NIGHT:
+            self.night_toggle()
+        elif tool == WINDOWS:
+            self.windows_click()
+        elif tool == KEYLIGHT:
+            self.keylight_last = self.keylight_last if self.get_keylight() == 0 else self.get_keylight()
+            self.set_keylight(self.keylight_last if self.get_keylight() == 0 else 0)
+        elif tool == FIND:
+            self.ui.tap(KEY_F, ctrl=True)
+            self.show_label("🔎 Cerca nella pagina")
+        else:
+            self.show_label(f"{ICONS[tool]} {NAMES[tool]}  (tieni premuto per il menu)")
+
+    # --- context: which tools make sense right now ---
+    def in_browser(self):
+        """True if the focused window is a web browser (cached for a moment)."""
+        now = GLib.get_monotonic_time() / 1e6
+        if now - self.focus_checked > FOCUS_CACHE_S:
+            self.focus_checked = now
+            self.focus_browser = self._focus_is_browser()
+        return self.focus_browser
+
+    def _focus_is_browser(self):
+        try:
+            root = subprocess.run(["xprop", "-root", "_NET_ACTIVE_WINDOW"], capture_output=True, text=True, timeout=0.5).stdout
+            wid = root.split()[-1]
+            if not wid.startswith("0x") or int(wid, 16) == 0:
+                return False
+            cls = subprocess.run(["xprop", "-id", wid, "WM_CLASS"], capture_output=True, text=True, timeout=0.5).stdout.lower()
+        except (OSError, IndexError, ValueError, subprocess.SubprocessError):
+            return False
+        return any(b in cls for b in BROWSER_CLASSES)
+
+    def available_tools(self):
+        browser = self.in_browser()
+        return [t for t in MENU_ORDER if browser or t not in BROWSER_ONLY]
+
+    def effective_tool(self):
+        """The chosen tool, or Scroll while a browser-only tool has no browser to act on (choice is kept)."""
+        return self.tool if self.tool in self.available_tools() else SCROLL
+
+    # --- real screen zoom (GNOME magnifier) outside the browser ---
+    @staticmethod
+    def _settings(schema):
+        src = Gio.SettingsSchemaSource.get_default()
+        return Gio.Settings.new(schema) if src and src.lookup(schema, True) else None
+
+    def get_magnifier(self):
+        if not (self.mag and self.mag_apps) or not self.mag_apps.get_boolean("screen-magnifier-enabled"):
+            return 1.0
+        return self.mag.get_double("mag-factor")
+
+    def set_magnifier(self, factor):
+        if not (self.mag and self.mag_apps):
+            return 1.0
+        factor = max(1.0, min(MAG_MAX, round(factor / MAG_STEP) * MAG_STEP))
+        if factor <= 1.0:
+            self.mag_apps.set_boolean("screen-magnifier-enabled", False)
+            self.mag.set_double("mag-factor", 1.0)
+        else:
+            self.mag.set_double("mag-factor", factor)
+            self.mag_apps.set_boolean("screen-magnifier-enabled", True)
+        Gio.Settings.sync()
+        return factor
+
+    def rotate_magnifier(self, delta):
+        self.acc += delta * -self.sign  # clockwise (default) = zoom in
+        steps = int(self.acc / self.STEP[ZOOM])
+        if not steps:
+            return
+        self.acc -= steps * self.STEP[ZOOM]
+        f = self.set_magnifier(self.get_magnifier() + steps * MAG_STEP)
+        self.show_label(f"🔍 Zoom schermo {f:g}×", (f - 1) / (MAG_MAX - 1))
+
+    def rickroll(self):
+        """No video to control while a browser has the focus: open the classic one in the default browser."""
+        if not self.in_browser():
+            return False
+        now = GLib.get_monotonic_time() / 1e6
+        if now - self.rickrolled > RICKROLL_COOLDOWN_S:
+            self.rickrolled = now
+            subprocess.Popen(["xdg-open", RICKROLL_URL], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.show_label("▶ Nessun video nel browser… 🎵")
+        return True
+
+    # --- system helpers ---
+    def _mpris_players(self):
+        """MPRIS player bus names, the ones that are playing first."""
+        try:
+            names = self.bus.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                       "ListNames", None, GLib.VariantType("(as)"), Gio.DBusCallFlags.NONE, 500, None).unpack()[0]
+        except GLib.Error:
+            return []
+        players = [n for n in names if n.startswith("org.mpris.MediaPlayer2.")]
+
+        def playing(name):
+            try:
+                r = self.bus.call_sync(name, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Get",
+                                       GLib.Variant("(ss)", ("org.mpris.MediaPlayer2.Player", "PlaybackStatus")),
+                                       None, Gio.DBusCallFlags.NONE, 500, None)
+                return r.unpack()[0] == "Playing"
+            except GLib.Error:
+                return False
+
+        return sorted(players, key=lambda n: not playing(n))
+
+    def mpris(self, method, params=None):
+        """Call a method on the most relevant MPRIS player (playing first). True if one answered."""
+        for name in self._mpris_players():
+            try:
+                self.bus.call_sync(name, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player", method,
+                                   params, None, Gio.DBusCallFlags.NONE, 500, None)
+                return True
+            except GLib.Error:
+                continue
+        return False
+
+    def get_volume(self):
+        try:
+            out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True).stdout
+            return float(out.split()[1]), "[MUTED]" in out
+        except (IndexError, ValueError, OSError):
+            return 0.0, False
+
+    def _power(self, method, args):
+        return self.bus.call_sync("org.gnome.SettingsDaemon.Power", "/org/gnome/SettingsDaemon/Power",
+                                  "org.freedesktop.DBus.Properties", method, args,
+                                  None, Gio.DBusCallFlags.NONE, 500, None)
+
+    def get_brightness(self):
+        try:
+            return self._power("Get", GLib.Variant("(ss)", ("org.gnome.SettingsDaemon.Power.Screen", "Brightness"))).unpack()[0]
+        except GLib.Error:
+            return 50
+
+    def set_brightness(self, pct):
+        try:
+            self._power("Set", GLib.Variant("(ssv)", ("org.gnome.SettingsDaemon.Power.Screen", "Brightness", GLib.Variant("i", pct))))
+        except GLib.Error:
+            pass
+
+    # --- shutdown ---
+    def rotate_power(self, delta, now):
+        if now - self.power_seen > 3:  # stale progress after a pause
+            self.power_progress = 0.0
+        self.power_seen = now
+        self.power_progress = max(0.0, min(float(POWER_ARM_UNITS), self.power_progress - self.sign * delta))
+        if self.power_progress >= POWER_ARM_UNITS:
+            self.start_power_countdown()
+        else:
+            self.show_label("⏻ Ruota per arrestare il sistema", self.power_progress / POWER_ARM_UNITS)
+
+    def start_power_countdown(self):
+        self.power_left = POWER_COUNTDOWN_S
+        self.power_started = GLib.get_monotonic_time() / 1e6
+        self.power_progress = 0.0
+        self.power_tick()
+        self.power_id = GLib.timeout_add(1000, self.power_tick)
+
+    def power_tick(self):
+        if self.power_left <= 0:
+            self.power_id = 0
+            subprocess.Popen(POWER_CMD)
+            return False
+        self.show_label(f"⏻ Arresto tra {self.power_left} s — clic o rotazione per annullare", self.power_left / POWER_COUNTDOWN_S)
+        self.power_left -= 1
+        return True
+
+    def cancel_power(self):
+        if self.power_id:
+            GLib.source_remove(self.power_id)
+            self.power_id = 0
+        self.power_progress = 0.0
+        self.show_label("⏻ Arresto annullato")
+
+    # --- house picture ---
+    def show_house(self, delta):
+        o = self.overlay
+        if o.image is None:
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file(HOUSE_IMAGE)
+                o.image = pb.scale_simple(HOUSE_WIDTH, int(pb.get_height() * HOUSE_WIDTH / pb.get_width()), GdkPixbuf.InterpType.BILINEAR)
+            except GLib.Error:
+                self.show_label("🏠 Immagine non trovata")
+                return
+        o.angle += delta * -self.sign * HOUSE_DEG_PER_UNIT
+        o.show_for("image", 1500)
+
+    # --- keyboard backlight ---
+    def get_keylight(self):
+        try:
+            pct = self._power("Get", GLib.Variant("(ss)", ("org.gnome.SettingsDaemon.Power.Keyboard", "Brightness"))).unpack()[0]
+            return round(max(0, pct) * KEYLIGHT_LEVELS / 100)
+        except GLib.Error:
+            return 0
+
+    def set_keylight(self, level):
+        level = max(0, min(KEYLIGHT_LEVELS, level))
+        try:
+            self._power("Set", GLib.Variant("(ssv)", ("org.gnome.SettingsDaemon.Power.Keyboard", "Brightness",
+                                                        GLib.Variant("i", round(level * 100 / KEYLIGHT_LEVELS)))))
+        except GLib.Error:
+            self.show_label("⌨ Retroilluminazione non disponibile")
+            return
+        if level:
+            self.keylight_last = level
+        self.show_label("⌨ Retroilluminazione " + (f"livello {level}/{KEYLIGHT_LEVELS}" if level else "spenta"), level / KEYLIGHT_LEVELS)
+
+    # --- dice ---
+    def roll_dice(self):
+        sides = DICE_SIDES[self.dice_idx]
+        self.dice_win.play(make_dice_draw(sides, random.randint(1, sides)), DICE_SHOW_S, size=(420, 420))
+
+    # --- timer ---
+    @staticmethod
+    def _timer_next(m, up):
+        m = m + 1 if up and m < 10 else m + 5 if up else m - 1 if m <= 10 else m - 5
+        return max(1, min(TIMER_MAX, m))
+
+    def timer_step(self, d):
+        if self.timer_end:
+            self.show_timer_left()
+            return
+        for _ in range(abs(d)):
+            self.timer_minutes = self._timer_next(self.timer_minutes, d > 0)
+        self.show_label(f"⏲ Timer {self.timer_minutes} min  (clic per avviare)", self.timer_minutes / TIMER_MAX)
+
+    def timer_left(self):
+        return max(0.0, self.timer_end - GLib.get_monotonic_time() / 1e6)
+
+    def show_timer_left(self):
+        left = int(self.timer_left() + 0.99)
+        self.show_label(f"⏲ Mancano {left // 60}:{left % 60:02d}  (clic per annullare)", self.timer_left() / (self.timer_minutes * 60))
+
+    def timer_click(self):
+        if self.timer_end:
+            self.timer_cancel()
+            self.show_label("⏲ Timer annullato")
+            return
+        self.timer_end = GLib.get_monotonic_time() / 1e6 + self.timer_minutes * 60
+        self.timer_id = GLib.timeout_add(250, self.timer_tick)
+        self.chip_win.play(self.draw_chip, 0, size=(210, 56), where="topright", fps=2)
+        self.show_label(f"⏲ Timer avviato: {self.timer_minutes} min")
+
+    def timer_cancel(self):
+        self.timer_end = 0.0
+        if self.timer_id:
+            GLib.source_remove(self.timer_id)
+            self.timer_id = 0
+        self.chip_win.stop()
+
+    def timer_tick(self):
+        if self.timer_left() > 0:
+            return True
+        self.timer_id = 0
+        self.timer_cancel()
+        self.ring()
+        return False
+
+    def draw_chip(self, cr, _t, w, h):
+        left = int(self.timer_left() + 0.99)
+        cr.set_source_rgba(0.08, 0.08, 0.1, 0.85)
+        r = 20
+        cr.new_sub_path()
+        cr.arc(w - r, r, r, -math.pi / 2, 0)
+        cr.arc(w - r, h - r, r, 0, math.pi / 2)
+        cr.arc(r, h - r, r, math.pi / 2, math.pi)
+        cr.arc(r, r, r, math.pi, 3 * math.pi / 2)
+        cr.close_path()
+        cr.fill()
+        cr.set_source_rgba(1, 1, 1, 1)
+        text(cr, f"⏲ {left // 60}:{left % 60:02d}", 18, w / 2, h / 2)
+
+    def ring(self):
+        self.tomato_win.play(make_tomato_draw(random.choice(TIMER_MESSAGES)), TOMATO_S, fps=30, on_done=self.stop_alarm)
+        cmd = f"while :; do paplay '{ALARM_SOUND}'; done" if os.path.exists(ALARM_SOUND) else "while :; do canberra-gtk-play -i alarm-clock-elapsed; done"
+        self.alarm_proc = subprocess.Popen(["sh", "-c", cmd], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def stop_alarm(self):
+        self.tomato_win.stop()
+        if self.alarm_proc:
+            try:
+                os.killpg(self.alarm_proc.pid, 15)
+            except OSError:
+                pass
+            self.alarm_proc = None
+
+    # --- video speed ---
+    def mpris_rate(self, set_to=None):
+        """Read (or set, then re-read) the playback rate of the first MPRIS player that supports it."""
+        for name in self._mpris_players():
+            iface = "org.mpris.MediaPlayer2.Player"
+            try:
+                if set_to is not None:
+                    self.bus.call_sync(name, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Set",
+                                       GLib.Variant("(ssv)", (iface, "Rate", GLib.Variant("d", set_to))),
+                                       None, Gio.DBusCallFlags.NONE, 500, None)
+                r = self.bus.call_sync(name, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Get",
+                                       GLib.Variant("(ss)", (iface, "Rate")), None, Gio.DBusCallFlags.NONE, 500, None)
+                rate = r.unpack()[0]
+                if set_to is None or abs(rate - set_to) < 0.01:
+                    return rate
+            except GLib.Error:
+                continue
+        return None
+
+    def set_speed(self, target):
+        target = max(SPEED_MIN, min(SPEED_MAX, round(target / SPEED_STEP) * SPEED_STEP))
+        rate = self.mpris_rate(target)
+        if rate is not None:
+            self.speed = rate
+        elif self.in_browser():  # browsers that ignore MPRIS rate: use the player's < and > keys (0.25x..2x)
+            target = min(target, 2.0)
+            steps = round((target - self.speed) / SPEED_STEP)
+            for _ in range(abs(steps)):
+                self.ui.tap(KEY_DOT if steps > 0 else KEY_COMMA, shift=True)
+            self.speed = target
+        else:
+            self.show_label("⏩ Nessun video da accelerare")
+            return
+        self.show_label(f"⏩ Velocità {self.speed:g}×", (self.speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN))
+
+    # --- night light ---
+    def night_is_on(self):
+        return os.path.exists(NIGHT_STATE)
+
+    def night_toggle(self):
+        if not self.color:
+            self.show_label("🌙 Luce notturna non disponibile")
+        elif self.night_is_on():
+            self.night_off()
+            self.show_label("🌙 Luce notturna spenta")
+        else:
+            self.night_on()
+            self.show_label(f"🌙 Luce notturna accesa  {self.color.get_uint('night-light-temperature')} K")
+
+    def night_on(self):
+        c = self.color
+        if not self.night_is_on():  # remember the user's own schedule so it can be restored
+            saved = {"enabled": c.get_boolean("night-light-enabled"), "automatic": c.get_boolean("night-light-schedule-automatic"),
+                     "from": c.get_double("night-light-schedule-from"), "to": c.get_double("night-light-schedule-to")}
+            os.makedirs(os.path.dirname(NIGHT_STATE), exist_ok=True)
+            with open(NIGHT_STATE, "w") as f:
+                json.dump(saved, f)
+        c.set_boolean("night-light-schedule-automatic", False)
+        c.set_double("night-light-schedule-from", 0.0)
+        c.set_double("night-light-schedule-to", 24.0)
+        c.set_boolean("night-light-enabled", True)
+        Gio.Settings.sync()
+
+    def night_off(self):
+        c = self.color
+        try:
+            with open(NIGHT_STATE) as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            saved = {"enabled": False, "automatic": True, "from": 20.0, "to": 6.0}
+        c.set_double("night-light-schedule-from", saved["from"])
+        c.set_double("night-light-schedule-to", saved["to"])
+        c.set_boolean("night-light-schedule-automatic", saved["automatic"])
+        c.set_boolean("night-light-enabled", saved["enabled"])
+        Gio.Settings.sync()
+        try:
+            os.remove(NIGHT_STATE)
+        except OSError:
+            pass
+
+    def night_step(self, d):
+        if not self.color:
+            self.show_label("🌙 Luce notturna non disponibile")
+            return
+        k = max(NIGHT_MIN, min(NIGHT_MAX, self.color.get_uint("night-light-temperature") - d * NIGHT_STEP))  # clockwise = warmer
+        self.color.set_uint("night-light-temperature", k)
+        if not self.night_is_on():
+            self.night_on()
+        Gio.Settings.sync()
+        self.show_label(f"🌙 Luce notturna {k} K", (NIGHT_MAX - k) / (NIGHT_MAX - NIGHT_MIN))
+
+    # --- window switcher (Alt held, Tab per step) ---
+    def windows_step(self, d):
+        if not self.alt_down:
+            self.ui.emit((EV_KEY, KEY_LEFTALT, 1))
+            self.alt_down = True
+        for _ in range(abs(d)):
+            self.ui.tap(KEY_TAB, shift=d < 0)
+        if self.alt_id:
+            GLib.source_remove(self.alt_id)
+        self.alt_id = GLib.timeout_add(ALT_RELEASE_MS, self.release_alt)
+
+    def release_alt(self):
+        if self.alt_id:
+            GLib.source_remove(self.alt_id)
+            self.alt_id = 0
+        if self.alt_down:
+            self.ui.emit((EV_KEY, KEY_LEFTALT, 0))
+            self.alt_down = False
+        return False
+
+    def windows_click(self):
+        if self.alt_down:
+            self.release_alt()  # confirm the highlighted window
+            return
+        self.ui.emit((EV_KEY, KEY_LEFTALT, 1))  # quick switch to the previous window
+        self.ui.tap(KEY_TAB)
+        self.ui.emit((EV_KEY, KEY_LEFTALT, 0))
+        self.show_label("🪟 Finestra precedente")
+
+    # --- OSD ---
+    def show_label(self, label, value=None):
+        o = self.overlay
+        o.label, o.value = label, value
+        o.show_for("osd", 1200)
+
+    def show_volume(self):
+        v, muted = self.get_volume()
+        self.show_label(f"{'🔇' if muted else '🔊'} Volume {round(v * 100)}%" + (" (muto)" if muted else ""), v)
+
+    def show_brightness(self):
+        b = self.get_brightness()
+        self.show_label(f"☀ Luminosità {b}%", b / 100)
+
+
+def main():
+    p = argparse.ArgumentParser(description="ASUS Dial driver with on-screen menu")
+    p.add_argument("--menu-step", type=float, default=8, help="dial units per menu item")
+    p.add_argument("--invert", action="store_true", help="invert rotation direction")
+    args = p.parse_args()
+    Dial(args)
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

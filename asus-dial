@@ -705,7 +705,7 @@ class Overlay(Gtk.Window):
 
     on_menu_timeout = None
 
-    def __init__(self):
+    def __init__(self, kind="menu"):
         super().__init__(type=Gtk.WindowType.POPUP)
         self.set_app_paintable(True)
         self.set_visual(self.get_screen().get_rgba_visual())
@@ -716,7 +716,7 @@ class Overlay(Gtk.Window):
         self.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
         self.connect("draw", self.on_draw)
         self.connect("realize", lambda w: w.get_window().input_shape_combine_region(cairo.Region(), 0, 0))
-        self.kind = None  # "menu" | "osd"
+        self.kind = kind  # "menu" | "osd" | "image": every kind has its own window
         self.sel = 0  # index into items
         self.items = list(range(len(ICONS)))  # tool ids shown in the menu
         self.msize = MENU_SIZE
@@ -732,11 +732,11 @@ class Overlay(Gtk.Window):
         self.t0 = 0.0
         self.vis, self.vis_from, self.vis_t0, self.vis_dir, self.hiding = 0.0, 0.0, 0.0, 0, False  # appearance progress 0..1
         self.sel_from, self.sel_t0, self.sel_shown = None, 0.0, 0  # sliding highlight
+        self.geom = (0, 0, 0, 0)  # size and place the window was last given
 
     def show_for(self, kind, timeout_ms):
         was_visible = self.get_visible()
-        kind_changed = was_visible and kind != self.kind
-        self.kind = kind
+        kind = self.kind
         th, an = self.theme, self.anim_cfg
         if kind == "menu":
             pad = ath.menu_pad(th)
@@ -746,7 +746,6 @@ class Overlay(Gtk.Window):
         else:
             pad = ath.osd_pad(th)
             w, h = ath.OSD_W + 2 * pad, ath.OSD_H + 2 * pad
-        self.resize(w, h)
         display = self.get_screen().get_display()
         mon = display.get_primary_monitor() or display.get_monitor(0)
         g = mon.get_geometry()
@@ -755,25 +754,37 @@ class Overlay(Gtk.Window):
             y = g.y + g.height - ath.OSD_H - 120 - pad
         else:
             y = g.y + (g.height - h) // 2
+        remapped = False
+        if was_visible and (w, h, x, y) != self.geom:
+            # A mapped window that changes size AND place can show the new size at the old place for a few frames
+            # (a half menu below the screen): unmap it, so it appears already in the right place.
+            Gtk.Window.hide(self)
+            was_visible, remapped = False, True
+            self.hiding, self.vis_dir = False, 0
+        self.geom = (w, h, x, y)
+        self.resize(w, h)
         self.move(x, y)
+        if not self.get_realized():
+            self.realize()
+        if not self.get_mapped():
+            self.get_window().move_resize(x, y, w, h)  # already in place when it is mapped, never at 0, 0 first
         now = GLib.get_monotonic_time() / 1e6
         if not was_visible:
             self.t0 = now
             # frosted glass: blur what is behind the window, taken just before it appears
-            self.backdrop = ath.capture_backdrop(x, y, w, h, th["blur"]) if kind in ("menu", "osd") and th["blur"] > 0 else None
-        elif kind_changed:
-            self.backdrop = None
+            can_blur = kind in ("menu", "osd") and th["blur"] > 0 and not remapped
+            self.backdrop = ath.capture_backdrop(x, y, w, h, th["blur"]) if can_blur else None
         # the highlight slides from the old slice to the new one
         if kind == "menu":
             n = len(self.items)
-            if (not was_visible or kind_changed) or n < 2:
+            if not was_visible or n < 2:
                 self.sel_from = None
             elif self.sel != self.sel_shown and an["highlight"] and an["highlight_ms"] > 0:
                 self.sel_from, self.sel_t0 = self.sel_pos(now), now
             self.sel_shown = self.sel
         # appearing: from where it is now (0 when it was hidden) up to 1
         animated = kind in ("menu", "osd") and an["in_type"] != "none" and an["in_ms"] > 0
-        if not was_visible or kind_changed:
+        if not was_visible:
             self.vis = 0.0 if animated else 1.0
         if self.hiding or self.vis < 1.0:
             if animated:
@@ -901,7 +912,9 @@ class Dial:
         self.args = args
         self.sign = 1 if args.invert else -1  # default: clockwise = scroll down / more
         self.ui = Uinput()
-        self.overlay = Overlay()
+        self.overlay = Overlay("menu")
+        self.osd = Overlay("osd")
+        self.house_win = Overlay("image")
         self.overlay.on_menu_timeout = lambda: setattr(self, "menu_open", False)
         self.cfg, self.cfg_mtime, self.lang_mtime = acfg.load(), acfg.config_mtime(), self._mtime(LANG_FILE)
         self.menu_tools = []
@@ -964,8 +977,9 @@ class Dial:
             else:
                 tools.append(ID_TO_TOOL[mode_id])
         self.menu_tools = tools or [SCROLL]
-        self.overlay.theme = acfg.theme_of(self.cfg)
-        self.overlay.anim_cfg = acfg.animation_of(self.cfg)
+        for win in (self.overlay, self.osd):
+            win.theme = acfg.theme_of(self.cfg)
+            win.anim_cfg = acfg.animation_of(self.cfg)
         if getattr(self, "tool", SCROLL) >= CUSTOM_BASE:  # the custom list may have changed: find the mode again
             cid = self.cur_custom_id
             self.tool = CUSTOM_BASE + ids.index(cid) if cid in ids else SCROLL
@@ -1445,7 +1459,7 @@ class Dial:
 
     # --- house picture ---
     def show_house(self, delta):
-        o = self.overlay
+        o = self.house_win
         if o.image is None:
             try:
                 pb = GdkPixbuf.Pixbuf.new_from_file(HOUSE_IMAGE)
@@ -1777,7 +1791,7 @@ class Dial:
 
     # --- OSD ---
     def show_label(self, label, value=None):
-        o = self.overlay
+        o = self.osd
         o.label, o.value = label, value
         o.show_for("osd", 1200)
 

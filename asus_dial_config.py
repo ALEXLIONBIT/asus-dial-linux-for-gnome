@@ -87,7 +87,7 @@ DEFAULT_CONFIG = {
     "version": 1,
     "modes": {"disabled": [], "order": list(DEFAULT_ORDER)},
     "custom": [],  # {"id": "p", "name": "P", "icon": "⌨", "click": "p", "cw": "", "ccw": ""}
-    "welcome": {"enabled": True},
+    "welcome": {"enabled": True, "character": "human", "color": "#4080ff", "rainbow": False, "image": "", "message": "", "name": ""},
     "theme": {},
 }
 

@@ -6,6 +6,7 @@ and pick the language. Changes are written to ~/.config/asus-dial/config.json an
 driver picks them up by itself within a second.
 """
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -17,6 +18,7 @@ from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
 import cairo
 import time
 
+import asus_dial_characters as chars
 import asus_dial_config as acfg
 import asus_dial_theme as ath
 
@@ -67,11 +69,25 @@ STR = {
     "save": ("Save", "Guardar", "Salva"),
     "cancel": ("Cancel", "Cancelar", "Annulla"),
     "language": ("Language of the dial and of this app", "Idioma de la rueda y de esta app", "Lingua della manopola e di questa app"),
-    "welcome": ("Show the welcome message when I log in", "Mostrar el mensaje de bienvenida al iniciar sesión",
-                "Mostra il messaggio di benvenuto quando accedo"),
-    "welcome_note": ("(the welcome message arrives in a later update; the choice is already saved)",
-                     "(el mensaje de bienvenida llega en una actualización posterior; la elección ya se guarda)",
-                     "(il messaggio di benvenuto arriva in un aggiornamento successivo; la scelta è già salvata)"),
+    "welcome": ("Show the welcome when I log in", "Mostrar la bienvenida al iniciar sesión", "Mostra il benvenuto quando accedo"),
+    "welcome_title": ("Welcome at login", "Bienvenida al iniciar sesión", "Benvenuto all'accesso"),
+    "character": ("Character", "Personaje", "Personaggio"),
+    "ch_human": ("Human", "Humano", "Umano"),
+    "ch_robot": ("Robot", "Robot", "Robot"),
+    "ch_skeleton": ("Skeleton", "Esqueleto", "Scheletro"),
+    "ch_image": ("My image (PNG)", "Mi imagen (PNG)", "La mia immagine (PNG)"),
+    "ch_color": ("Character color", "Color del personaje", "Colore del personaggio"),
+    "ch_rainbow": ("Rainbow style (always on with the Rainbow theme)", "Estilo arcoíris (siempre con el tema Arcoíris)",
+                   "Stile arcobaleno (sempre con il tema Arcobaleno)"),
+    "ch_choose": ("Choose a PNG…", "Elegir un PNG…", "Scegli un PNG…"),
+    "ch_noimage": ("(no image chosen)", "(sin imagen elegida)", "(nessuna immagine scelta)"),
+    "ch_message": ("Message", "Mensaje", "Messaggio"),
+    "ch_message_hint": ("Type what the character writes. {name} = the name below. Empty = default message.",
+                        "Escribe lo que escribe el personaje. {name} = el nombre de abajo. Vacío = mensaje predeterminado.",
+                        "Scrivi cosa scrive il personaggio. {name} = il nome qui sotto. Vuoto = messaggio predefinito."),
+    "ch_name": ("Name to greet", "Nombre a saludar", "Nome da salutare"),
+    "ch_name_hint": ("empty = your system name", "vacío = tu nombre del sistema", "vuoto = il nome del tuo sistema"),
+    "ch_preview_now": ("Play it now on screen", "Reproducir ahora en pantalla", "Riproduci ora sullo schermo"),
     "tab_look": ("Appearance", "Aspecto", "Aspetto"),
     "preset": ("Preset", "Preajuste", "Preset"),
     "bg_type": ("Background", "Fondo", "Sfondo"),
@@ -314,9 +330,10 @@ class Manager(Gtk.Window):
 
     # ---------------------------------------------------------------- UI
     def build(self):
-        if getattr(self, "tick_id", 0):
-            GLib.source_remove(self.tick_id)
-            self.tick_id = 0
+        for attr in ("tick_id", "wtick_id"):
+            if getattr(self, attr, 0):
+                GLib.source_remove(getattr(self, attr))
+                setattr(self, attr, 0)
         if self.root:
             self.remove(self.root)
         self.set_title(self.tr("title"))
@@ -666,7 +683,7 @@ class Manager(Gtk.Window):
         return True
 
     def build_general_tab(self):
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, border_width=16)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, border_width=16)
         page.pack_start(Gtk.Label(label=self.tr("language"), xalign=0), False, False, 0)
         combo = Gtk.ComboBoxText(halign=Gtk.Align.START)
         for code in acfg.LANGS:
@@ -675,18 +692,145 @@ class Manager(Gtk.Window):
         combo.connect("changed", self.on_lang)
         page.pack_start(combo, False, False, 0)
 
+        frame = Gtk.Frame(label=self.tr("welcome_title"))
+        body = Gtk.Box(spacing=14, border_width=10)
+        frame.add(body)
+        page.pack_start(frame, True, True, 0)
+        self._wloading = True
+        grid = Gtk.Grid(row_spacing=8, column_spacing=10)
+        body.pack_start(grid, False, True, 0)
+        wc = self.cfg["welcome"]
+        self.ww = {}
+        row = 0
         sw = Gtk.CheckButton(label=self.tr("welcome"))
-        sw.set_active(bool(self.cfg["welcome"].get("enabled", True)))
-        sw.connect("toggled", self.on_welcome)
-        page.pack_start(sw, False, False, 0)
-        note = Gtk.Label(label=self.tr("welcome_note"), xalign=0, wrap=True)
-        note.get_style_context().add_class("dim-label")
-        page.pack_start(note, False, False, 0)
+        sw.set_active(bool(wc.get("enabled", True)))
+        sw.connect("toggled", lambda b: self.set_welcome("enabled", b.get_active()))
+        grid.attach(sw, 0, row, 2, 1)
+        row += 1
+        grid.attach(Gtk.Label(label=self.tr("character"), xalign=0), 0, row, 1, 1)
+        ch = Gtk.ComboBoxText()
+        for kind in chars.CHARACTERS:
+            ch.append(kind, self.tr("ch_" + kind))
+        ch.set_active_id(wc.get("character", "human"))
+        ch.connect("changed", lambda c: self.set_welcome("character", c.get_active_id()))
+        grid.attach(ch, 1, row, 1, 1)
+        self.ww["character"] = ch
+        row += 1
+        grid.attach(Gtk.Label(label=self.tr("ch_color"), xalign=0), 0, row, 1, 1)
+        cb = Gtk.ColorButton()
+        rgba = Gdk.RGBA()
+        rgba.parse(wc.get("color") or "#4080ff")
+        cb.set_rgba(rgba)
+        cb.connect("color-set", lambda c: self.set_welcome("color", self.rgba_hex(c.get_rgba())))
+        grid.attach(cb, 1, row, 1, 1)
+        row += 1
+        rb = Gtk.CheckButton(label=self.tr("ch_rainbow"))
+        rb.set_active(bool(wc.get("rainbow")))
+        rb.connect("toggled", lambda b: self.set_welcome("rainbow", b.get_active()))
+        grid.attach(rb, 0, row, 2, 1)
+        row += 1
+        pick = Gtk.Button(label=self.tr("ch_choose"))
+        pick.connect("clicked", lambda *_: self.on_choose_character())
+        grid.attach(pick, 0, row, 1, 1)
+        img_ok = wc.get("image") and os.path.exists(wc["image"])
+        lbl = Gtk.Label(label=os.path.basename(wc["image"]) if img_ok else self.tr("ch_noimage"), xalign=0)
+        lbl.get_style_context().add_class("dim-label")
+        grid.attach(lbl, 1, row, 1, 1)
+        self.ww["image_label"] = lbl
+        row += 1
+        grid.attach(Gtk.Label(label=self.tr("ch_message"), xalign=0), 0, row, 1, 1)
+        msg = Gtk.Entry(text=wc.get("message", ""), hexpand=True, width_chars=28)
+        msg.set_placeholder_text(chars.DEFAULT_MESSAGES[self.lang])
+        msg.connect("changed", lambda e: self.set_welcome("message", e.get_text()))
+        grid.attach(msg, 1, row, 1, 1)
+        row += 1
+        hint = Gtk.Label(label=self.tr("ch_message_hint"), xalign=0, wrap=True, max_width_chars=44)
+        hint.get_style_context().add_class("dim-label")
+        grid.attach(hint, 0, row, 2, 1)
+        row += 1
+        grid.attach(Gtk.Label(label=self.tr("ch_name"), xalign=0), 0, row, 1, 1)
+        nm = Gtk.Entry(text=wc.get("name", ""), hexpand=True)
+        nm.set_placeholder_text(self.tr("ch_name_hint"))
+        nm.connect("changed", lambda e: self.set_welcome("name", e.get_text()))
+        grid.attach(nm, 1, row, 1, 1)
+        row += 1
+        play = Gtk.Button(label=self.tr("ch_preview_now"))
+        play.connect("clicked", lambda *_: self.play_welcome())
+        grid.attach(play, 0, row, 2, 1)
+
+        self.scene = chars.Welcome(self.cfg, self.lang)
+        self.wt0 = time.monotonic()
+        self.wprev = Gtk.DrawingArea()
+        self.wprev.set_size_request(460, 300)
+        self.wprev.set_hexpand(True)
+        self.wprev.connect("draw", self.on_draw_welcome)
+        body.pack_start(self.wprev, True, True, 0)
+        self._wloading = False
+        self.wtick_id = GLib.timeout_add(40, lambda: (self.wprev.queue_draw(), True)[1])
 
         path = Gtk.Label(label=self.tr("cfg_file").format(path=acfg.CONFIG_FILE), xalign=0, selectable=True, wrap=True)
         path.get_style_context().add_class("dim-label")
         page.pack_end(path, False, False, 0)
         return page
+
+    def set_welcome(self, key, value):
+        if getattr(self, "_wloading", True):
+            return
+        self.cfg["welcome"][key] = value
+        self.save()
+        self.scene = chars.Welcome(self.cfg, self.lang)
+        self.wt0 = time.monotonic()
+
+    def on_draw_welcome(self, area, cr):
+        w, h = area.get_allocated_width(), area.get_allocated_height()
+        g = cairo.LinearGradient(0, 0, 0, h)
+        g.add_color_stop_rgb(0, 0.22, 0.26, 0.36)
+        g.add_color_stop_rgb(1, 0.12, 0.14, 0.2)
+        cr.set_source(g)
+        cr.paint()
+        t = (time.monotonic() - self.wt0) % (self.scene.total + 1.0)
+        self.scene.draw(cr, t, w, h)
+
+    def play_welcome(self):
+        script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "asus-dial-welcome")
+        if not os.path.exists(script):
+            script = os.path.expanduser("~/.local/bin/asus-dial-welcome")
+        subprocess.Popen([sys.executable, script, "--now"])
+
+    def on_choose_character(self):
+        dlg = Gtk.FileChooserDialog(title=self.tr("ch_choose"), transient_for=self, action=Gtk.FileChooserAction.OPEN)
+        dlg.add_buttons(self.tr("cancel"), Gtk.ResponseType.CANCEL, self.tr("save"), Gtk.ResponseType.OK)
+        flt = Gtk.FileFilter()
+        flt.set_name(self.tr("images"))
+        flt.add_pixbuf_formats()
+        dlg.add_filter(flt)
+        path = dlg.get_filename() if dlg.run() == Gtk.ResponseType.OK else None
+        dlg.destroy()
+        if not path:
+            return
+        try:
+            pb = GdkPixbuf.Pixbuf.new_from_file(path)
+            pb = pb.apply_embedded_orientation() or pb
+            if pb.get_height() > 900:  # keep it a sensible size
+                pb = pb.scale_simple(max(1, pb.get_width() * 900 // pb.get_height()), 900, GdkPixbuf.InterpType.BILINEAR)
+        except GLib.Error:
+            self.message(self.tr("bad_image"))
+            return
+        os.makedirs(acfg.CONFIG_DIR, exist_ok=True)
+        for old in os.listdir(acfg.CONFIG_DIR):
+            if old.startswith("character-") and old.endswith(".png"):
+                os.remove(os.path.join(acfg.CONFIG_DIR, old))
+        out = os.path.join(acfg.CONFIG_DIR, f"character-{int(time.time())}.png")
+        pb.savev(out, "png", [], [])
+        self.cfg["welcome"]["image"] = out
+        self.cfg["welcome"]["character"] = "image"
+        self.save()
+        self.ww["image_label"].set_text(os.path.basename(out))
+        self._wloading = True
+        self.ww["character"].set_active_id("image")
+        self._wloading = False
+        self.scene = chars.Welcome(self.cfg, self.lang)
+        self.wt0 = time.monotonic()
 
     # ---------------------------------------------------------------- data <-> list
     def mode_info(self, mode_id):
@@ -817,10 +961,6 @@ class Manager(Gtk.Window):
             except OSError:
                 pass
             GLib.idle_add(self.build)  # rebuild after the combo has finished handling the click
-
-    def on_welcome(self, btn):
-        self.cfg["welcome"]["enabled"] = btn.get_active()
-        self.save()
 
     # ---------------------------------------------------------------- small dialogs
     def message(self, text):

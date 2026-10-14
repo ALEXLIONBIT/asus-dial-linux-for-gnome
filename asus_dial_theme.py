@@ -237,10 +237,10 @@ def _tombstone(cr, x, y, s, t, kind=0, eyes=False, phase=0.0):
     cr.restore()
 
 
-def _skeleton(cr, x, y, s, t, phase=0.0):
-    """A dancing skeleton; x, y = between the feet, s = height."""
+def _skeleton(cr, x, y, s, t, phase=0.0, bone=None):
+    """A dancing skeleton; x, y = between the feet, s = height, bone = bone color."""
     sw = math.sin(t * 4 + phase)
-    bone, dark = (0.96, 0.95, 0.88), (0.1, 0.08, 0.16)
+    bone, dark = bone or (0.96, 0.95, 0.88), (0.1, 0.08, 0.16)
     cr.save()
     cr.translate(x + sw * s * 0.03, y)
     cr.set_line_cap(cairo.LINE_CAP_ROUND)

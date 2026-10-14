@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""asus-dial-welcome: the welcome animation of the ASUS Dial.
+
+A character (human, robot, skeleton or your own PNG) walks in along the bottom of the screen, waves,
+writes a message in a speech bubble (no voice, no sounds) and walks out.
+
+It is started by the desktop at every login (see asus-dial-welcome.desktop). Settings come from
+asus-dial-manager. Use --now to run it even if the welcome is switched off (that is what Preview does).
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk
+import cairo
+
+import asus_dial_characters as chars
+import asus_dial_config as acfg
+
+FPS = 30
+
+
+class WelcomeWindow(Gtk.Window):
+    """Transparent, click-through, always-on-top strip along the bottom of the screen."""
+
+    def __init__(self, scene):
+        super().__init__(type=Gtk.WindowType.POPUP)
+        self.scene = scene
+        self.set_app_paintable(True)
+        self.set_visual(self.get_screen().get_rgba_visual())
+        self.set_keep_above(True)
+        self.set_decorated(False)
+        self.set_skip_taskbar_hint(True)
+        self.set_accept_focus(False)
+        self.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
+        self.connect("draw", self.on_draw)
+        self.connect("realize", lambda w: w.get_window().input_shape_combine_region(cairo.Region(), 0, 0))
+        display = self.get_screen().get_display()
+        g = (display.get_primary_monitor() or display.get_monitor(0)).get_geometry()
+        w, h = int(g.width * 0.55), int(g.height * 0.46)
+        self.resize(w, h)
+        self.move(g.x, g.y + g.height - h)
+        self.t0 = GLib.get_monotonic_time() / 1e6
+        self.show_all()
+        GLib.timeout_add(int(1000 / FPS), self.tick)
+
+    def elapsed(self):
+        return GLib.get_monotonic_time() / 1e6 - self.t0
+
+    def tick(self):
+        if self.elapsed() >= self.scene.total:
+            Gtk.main_quit()
+            return False
+        self.queue_draw()
+        return True
+
+    def on_draw(self, _w, cr):
+        cr.set_operator(cairo.OPERATOR_SOURCE)
+        cr.set_source_rgba(0, 0, 0, 0)
+        cr.paint()
+        cr.set_operator(cairo.OPERATOR_OVER)
+        self.scene.draw(cr, self.elapsed(), self.get_allocated_width(), self.get_allocated_height())
+
+
+def read_lang():
+    try:
+        with open(acfg.LANG_FILE) as f:
+            lang = f.read().strip()
+        return lang if lang in acfg.LANGS else "en"
+    except OSError:
+        return "en"
+
+
+def main():
+    cfg = acfg.load()
+    if "--now" not in sys.argv and not cfg["welcome"].get("enabled", True):
+        return 0
+    WelcomeWindow(chars.Welcome(cfg, read_lang()))
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

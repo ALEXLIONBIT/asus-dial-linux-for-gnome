@@ -33,11 +33,95 @@ MENU_TIMEOUT_MS = 10000
 MENU_SIZE = 560
 HOLD_MS = 350
 PRESS_ROTATE_UNITS = 5  # total travel while pressed that opens the menu (net is noisy under pressure)
-SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT = range(16)
-NAMES = ["Scorri", "Volume", "Luminosità", "Zoom", "Video", "Schede", "Frecce", "Casa", "Arresta",
-         "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera"]
-ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨"]
-MENU_ORDER = [SCROLL, VOLUME, BRIGHT, KEYLIGHT, NIGHT, ZOOM, VIDEO, SPEED, TIMER, TABS, FIND, WINDOWS, ARROWS, DICE, HOUSE, POWER]
+SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE = range(17)
+ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨", "🌐"]
+
+# --- languages: English (default), Spanish, Italian ---
+LANGS = ("en", "es", "it")
+LANG_NAMES = {"en": "English", "es": "Español", "it": "Italiano"}
+LANG_FILE = os.path.expanduser("~/.config/asus-dial.lang")
+NAMES_L = {
+    "en": ["Scroll", "Volume", "Brightness", "Zoom", "Video", "Tabs", "Arrows", "House", "Power off",
+           "Dice", "Timer", "Speed", "Light", "Windows", "Find", "Keyboard", "Language"],
+    "es": ["Desplazar", "Volumen", "Brillo", "Zoom", "Vídeo", "Pestañas", "Flechas", "Casa", "Apagar",
+           "Dado", "Temporiz.", "Velocidad", "Luz", "Ventanas", "Buscar", "Teclado", "Idioma"],
+    "it": ["Scorri", "Volume", "Luminosità", "Zoom", "Video", "Schede", "Frecce", "Casa", "Arresta",
+           "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera", "Lingua"],
+}
+# message key -> (English, Spanish, Italian); placeholders use str.format names
+STR = {
+    "tomato_stop": ("click the dial to stop", "haz clic en la rueda para parar", "clic sulla manopola per fermare"),
+    "seek": ("▶ Video  {icon} {n} s", "▶ Vídeo  {icon} {n} s", "▶ Video  {icon} {n} s"),
+    "tab_next": ("🗂 Next tab", "🗂 Pestaña siguiente", "🗂 Scheda successiva"),
+    "tab_prev": ("🗂 Previous tab", "🗂 Pestaña anterior", "🗂 Scheda precedente"),
+    "dice_pick": ("🎲 Die d{n}  (click to roll)", "🎲 Dado d{n}  (clic para tirar)", "🎲 Dado d{n}  (clic per tirare)"),
+    "find_next": ("🔎 Next result", "🔎 Resultado siguiente", "🔎 Risultato successivo"),
+    "find_prev": ("🔎 Previous result", "🔎 Resultado anterior", "🔎 Risultato precedente"),
+    "middle_click": ("↕ Middle click", "↕ Clic central", "↕ Click centrale"),
+    "play_pause": ("▶ Play / Pause", "▶ Reproducir / Pausa", "▶ Play / Pausa"),
+    "power_hint": ("⏻ Rotate clockwise to power off", "⏻ Gira en sentido horario para apagar", "⏻ Ruota in senso orario per arrestare"),
+    "enter": ("↔ Enter", "↔ Intro", "↔ Invio"),
+    "find_open": ("🔎 Find in page", "🔎 Buscar en la página", "🔎 Cerca nella pagina"),
+    "hold_hint": ("(hold for the menu)", "(mantén pulsado para el menú)", "(tieni premuto per il menu)"),
+    "screen_zoom": ("🔍 Screen zoom {f:g}×", "🔍 Zoom de pantalla {f:g}×", "🔍 Zoom schermo {f:g}×"),
+    "no_video_browser": ("▶ No video in the browser… 🎵", "▶ No hay vídeo en el navegador… 🎵", "▶ Nessun video nel browser… 🎵"),
+    "power_rotate": ("⏻ Rotate to shut the system down", "⏻ Gira para apagar el sistema", "⏻ Ruota per arrestare il sistema"),
+    "power_count": ("⏻ Shutting down in {n} s — click or rotate to cancel", "⏻ Apagado en {n} s — clic o giro para cancelar",
+                    "⏻ Arresto tra {n} s — clic o rotazione per annullare"),
+    "power_cancel": ("⏻ Shutdown cancelled", "⏻ Apagado cancelado", "⏻ Arresto annullato"),
+    "no_image": ("🏠 Image not found", "🏠 Imagen no encontrada", "🏠 Immagine non trovata"),
+    "keylight_na": ("⌨ Keyboard backlight not available", "⌨ Retroiluminación no disponible", "⌨ Retroilluminazione non disponibile"),
+    "keylight_level": ("⌨ Keyboard backlight level {l}/{m}", "⌨ Retroiluminación nivel {l}/{m}", "⌨ Retroilluminazione livello {l}/{m}"),
+    "keylight_off": ("⌨ Keyboard backlight off", "⌨ Retroiluminación apagada", "⌨ Retroilluminazione spenta"),
+    "timer_set": ("⏲ Timer {m} min  (click to start)", "⏲ Temporizador {m} min  (clic para iniciar)", "⏲ Timer {m} min  (clic per avviare)"),
+    "timer_left": ("⏲ {mm}:{ss:02d} left  (click to cancel)", "⏲ Quedan {mm}:{ss:02d}  (clic para cancelar)", "⏲ Mancano {mm}:{ss:02d}  (clic per annullare)"),
+    "timer_cancelled": ("⏲ Timer cancelled", "⏲ Temporizador cancelado", "⏲ Timer annullato"),
+    "timer_started": ("⏲ Timer started: {m} min", "⏲ Temporizador iniciado: {m} min", "⏲ Timer avviato: {m} min"),
+    "no_video_speed": ("⏩ No video to speed up", "⏩ No hay vídeo que acelerar", "⏩ Nessun video da accelerare"),
+    "speed": ("⏩ Speed {x:g}×", "⏩ Velocidad {x:g}×", "⏩ Velocità {x:g}×"),
+    "night_na": ("🌙 Night light not available", "🌙 Luz nocturna no disponible", "🌙 Luce notturna non disponibile"),
+    "night_off": ("🌙 Night light off", "🌙 Luz nocturna apagada", "🌙 Luce notturna spenta"),
+    "night_on": ("🌙 Night light on  {k} K", "🌙 Luz nocturna encendida  {k} K", "🌙 Luce notturna accesa  {k} K"),
+    "night_k": ("🌙 Night light {k} K", "🌙 Luz nocturna {k} K", "🌙 Luce notturna {k} K"),
+    "prev_window": ("🪟 Previous window", "🪟 Ventana anterior", "🪟 Finestra precedente"),
+    "volume": ("Volume", "Volumen", "Volume"),
+    "muted": (" (muted)", " (silenciado)", " (muto)"),
+    "brightness": ("☀ Brightness {b}%", "☀ Brillo {b}%", "☀ Luminosità {b}%"),
+    "language": ("🌐 Language: {name}", "🌐 Idioma: {name}", "🌐 Lingua: {name}"),
+}
+TIMER_MESSAGES_L = {
+    "en": ("Timer expired!", "Completed!", "Finished!", "BOO!"),
+    "es": ("¡Temporizador agotado!", "¡Completado!", "¡Terminado!", "¡BU!"),
+    "it": ("Timer scaduto!", "Completato!", "Finito!", "BOO!"),
+}
+_lang = ["en"]  # current language (default English)
+
+
+def L(key, **kw):
+    return STR[key][LANGS.index(_lang[0])].format(**kw)
+
+
+def tname(tool):
+    return NAMES_L[_lang[0]][tool]
+
+
+def load_lang():
+    try:
+        with open(LANG_FILE) as f:
+            lang = f.read().strip()
+        _lang[0] = lang if lang in LANGS else "en"
+    except OSError:
+        _lang[0] = "en"
+
+
+def save_lang():
+    try:
+        os.makedirs(os.path.dirname(LANG_FILE), exist_ok=True)
+        with open(LANG_FILE, "w") as f:
+            f.write(_lang[0])
+    except OSError:
+        pass
+MENU_ORDER = [SCROLL, VOLUME, BRIGHT, KEYLIGHT, NIGHT, ZOOM, VIDEO, SPEED, TIMER, TABS, FIND, WINDOWS, ARROWS, DICE, HOUSE, LANGUAGE, POWER]
 HOUSE_IMAGE = os.path.expanduser("~/Immagini/casa.png")  # any picture you like
 HOUSE_WIDTH = 640  # px on screen
 HOUSE_DEG_PER_UNIT = 2.0  # the picture tilts with the dial
@@ -56,7 +140,6 @@ KEYLIGHT_LEVELS = 3  # the ASUS keyboard backlight has levels 0..3
 DICE_SIDES = (4, 6, 8, 10, 12, 20)
 DICE_ROLL_S, DICE_SHOW_S = 1.6, 3.8
 TIMER_MAX = 180  # minutes
-TIMER_MESSAGES = ("Timer scaduto!", "Completato!", "Finito!", "BOO!")
 TOMATO_S = 10.0
 ALARM_SOUND = "/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga"
 SPEED_MIN, SPEED_MAX, SPEED_STEP = 0.25, 3.0, 0.25
@@ -227,7 +310,7 @@ def make_tomato_draw(msg):
         if t >= t_fly + 0.1:
             u = min(1.0, (t - t_fly - 0.1) / 0.25)
             outlined_text(cr, msg, h * 0.14 * (0.3 + 0.7 * ease_out(u)), cx, cy)
-            outlined_text(cr, "clic sulla manopola per fermare", h * 0.03, cx, cy + h * 0.17)
+            outlined_text(cr, L("tomato_stop"), h * 0.03, cx, cy + h * 0.17)
         cr.pop_group_to_source()
         cr.paint_with_alpha(fade)
 
@@ -401,7 +484,7 @@ class Overlay(Gtk.Window):
         self.connect("realize", lambda w: w.get_window().input_shape_combine_region(cairo.Region(), 0, 0))
         self.kind = None  # "menu" | "osd"
         self.sel = 0  # index into items
-        self.items = list(range(len(NAMES)))  # tool ids shown in the menu
+        self.items = list(range(len(ICONS)))  # tool ids shown in the menu
         self.label = ""
         self.value = None  # 0..1 or None
         self.hide_id = 0
@@ -488,9 +571,9 @@ class Overlay(Gtk.Window):
             tx, ty = cx + r_txt * math.cos(am), cy + r_txt * math.sin(am)
             cr.set_source_rgba(1, 1, 1, 1)
             text(cr, ICONS[self.items[i]], 20, tx, ty - 11)
-            text(cr, NAMES[self.items[i]], 9, tx, ty + 17)
+            text(cr, tname(self.items[i]), 9, tx, ty + 17)
         cr.set_source_rgba(1, 1, 1, 0.9)
-        text(cr, NAMES[self.items[self.sel]], 13, cx, cy)
+        text(cr, tname(self.items[self.sel]), 13, cx, cy)
 
     def draw_osd(self, cr):
         w, h, r = 360, 110, 22
@@ -517,7 +600,7 @@ class Overlay(Gtk.Window):
 class Dial:
     # dial units needed per step of each tool; one physical detent is ~8-10 units
     STEP = {SCROLL: 6, VOLUME: 8, BRIGHT: 8, ZOOM: 8, VIDEO: 8, TABS: 8, ARROWS: 8,
-            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8}
+            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8}
 
     def __init__(self, args):
         self.args = args
@@ -562,7 +645,7 @@ class Dial:
     # --- persistence ---
     def load_tool(self):
         try:
-            return int(open(STATE_FILE).read()) % len(NAMES)
+            return int(open(STATE_FILE).read()) % len(ICONS)
         except (OSError, ValueError):
             return SCROLL
 
@@ -669,7 +752,7 @@ class Dial:
         self.power_progress = 0.0
         self.save_tool()
         self.overlay.close_overlay()
-        self.show_label(f"{ICONS[self.tool]} {NAMES[self.tool]}")
+        self.show_label(f"{ICONS[self.tool]} {tname(self.tool)}")
 
     # --- rotation ---
     def rotate(self, delta):
@@ -737,7 +820,7 @@ class Dial:
         self.ui.emit(*events)
         if zoom:
             self.ui.emit((EV_KEY, KEY_LEFTCTRL, 0))
-        self.show_label(f"{ICONS[tool]} {NAMES[tool]}")
+        self.show_label(f"{ICONS[tool]} {tname(tool)}")
 
     def step_tool(self, tool, d):
         n = abs(d)
@@ -753,18 +836,18 @@ class Dial:
                     return
                 for _ in range(n):
                     self.ui.tap(KEY_RIGHT if d > 0 else KEY_LEFT)
-            self.show_label(f"▶ Video  {'⏩' if d > 0 else '⏪'} {5 * n} s")
+            self.show_label(L("seek", icon="⏩" if d > 0 else "⏪", n=5 * n))
         elif tool == TABS:
             for _ in range(n):
                 self.ui.tap(KEY_PAGEDOWN if d > 0 else KEY_PAGEUP, ctrl=True)
-            self.show_label(f"🗂 Scheda {'successiva' if d > 0 else 'precedente'}")
+            self.show_label(L("tab_next" if d > 0 else "tab_prev"))
         elif tool == ARROWS:
             for _ in range(n):
                 self.ui.tap(KEY_RIGHT if d > 0 else KEY_LEFT)
             self.show_label(f"↔ {'→' if d > 0 else '←'}")
         elif tool == DICE:
             self.dice_idx = max(0, min(len(DICE_SIDES) - 1, self.dice_idx + d))
-            self.show_label(f"🎲 Dado d{DICE_SIDES[self.dice_idx]}  (clic per tirare)", self.dice_idx / (len(DICE_SIDES) - 1))
+            self.show_label(L("dice_pick", n=DICE_SIDES[self.dice_idx]), self.dice_idx / (len(DICE_SIDES) - 1))
         elif tool == TIMER:
             self.timer_step(d)
         elif tool == SPEED:
@@ -775,17 +858,19 @@ class Dial:
             self.windows_step(d)
         elif tool == KEYLIGHT:
             self.set_keylight(self.get_keylight() + d)
+        elif tool == LANGUAGE:
+            self.set_language((LANGS.index(_lang[0]) + d) % len(LANGS))
         elif tool == FIND:
             for _ in range(n):
                 self.ui.tap(KEY_F3, shift=d < 0)
-            self.show_label(f"🔎 Risultato {'successivo' if d > 0 else 'precedente'}")
+            self.show_label(L("find_next" if d > 0 else "find_prev"))
 
     # --- short click action per tool ---
     def click(self):
         tool = self.effective_tool()
         if tool == SCROLL:
             self.ui.tap(BTN_MIDDLE)
-            self.show_label("↕ Click centrale")
+            self.show_label(L("middle_click"))
         elif tool == VOLUME:
             subprocess.run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
             self.show_volume()
@@ -800,13 +885,13 @@ class Dial:
                 if self.rickroll():
                     return
                 self.ui.tap(KEY_PLAYPAUSE)
-            self.show_label("▶ Play / Pausa")
+            self.show_label(L("play_pause"))
         elif tool == POWER:
             self.power_progress = 0.0
-            self.show_label("⏻ Ruota in senso orario per arrestare", 0.0)
+            self.show_label(L("power_hint"), 0.0)
         elif tool == ARROWS:
             self.ui.tap(KEY_ENTER)
-            self.show_label("↔ Invio")
+            self.show_label(L("enter"))
         elif tool == DICE:
             self.roll_dice()
         elif tool == TIMER:
@@ -817,14 +902,16 @@ class Dial:
             self.night_toggle()
         elif tool == WINDOWS:
             self.windows_click()
+        elif tool == LANGUAGE:
+            self.set_language(LANGS.index(_lang[0]))
         elif tool == KEYLIGHT:
             self.keylight_last = self.keylight_last if self.get_keylight() == 0 else self.get_keylight()
             self.set_keylight(self.keylight_last if self.get_keylight() == 0 else 0)
         elif tool == FIND:
             self.ui.tap(KEY_F, ctrl=True)
-            self.show_label("🔎 Cerca nella pagina")
+            self.show_label(L("find_open"))
         else:
-            self.show_label(f"{ICONS[tool]} {NAMES[tool]}  (tieni premuto per il menu)")
+            self.show_label(f"{ICONS[tool]} {tname(tool)}  {L('hold_hint')}")
 
     # --- context: which tools make sense right now ---
     def in_browser(self):
@@ -885,7 +972,7 @@ class Dial:
             return
         self.acc -= steps * self.STEP[ZOOM]
         f = self.set_magnifier(self.get_magnifier() + steps * MAG_STEP)
-        self.show_label(f"🔍 Zoom schermo {f:g}×", (f - 1) / (MAG_MAX - 1))
+        self.show_label(L("screen_zoom", f=f), (f - 1) / (MAG_MAX - 1))
 
     def rickroll(self):
         """No video to control while a browser has the focus: open the classic one in the default browser."""
@@ -895,7 +982,7 @@ class Dial:
         if now - self.rickrolled > RICKROLL_COOLDOWN_S:
             self.rickrolled = now
             subprocess.Popen(["xdg-open", RICKROLL_URL], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.show_label("▶ Nessun video nel browser… 🎵")
+        self.show_label(L("no_video_browser"))
         return True
 
     # --- system helpers ---
@@ -963,7 +1050,7 @@ class Dial:
         if self.power_progress >= POWER_ARM_UNITS:
             self.start_power_countdown()
         else:
-            self.show_label("⏻ Ruota per arrestare il sistema", self.power_progress / POWER_ARM_UNITS)
+            self.show_label(L("power_rotate"), self.power_progress / POWER_ARM_UNITS)
 
     def start_power_countdown(self):
         self.power_left = POWER_COUNTDOWN_S
@@ -977,7 +1064,7 @@ class Dial:
             self.power_id = 0
             subprocess.Popen(POWER_CMD)
             return False
-        self.show_label(f"⏻ Arresto tra {self.power_left} s — clic o rotazione per annullare", self.power_left / POWER_COUNTDOWN_S)
+        self.show_label(L("power_count", n=self.power_left), self.power_left / POWER_COUNTDOWN_S)
         self.power_left -= 1
         return True
 
@@ -986,7 +1073,7 @@ class Dial:
             GLib.source_remove(self.power_id)
             self.power_id = 0
         self.power_progress = 0.0
-        self.show_label("⏻ Arresto annullato")
+        self.show_label(L("power_cancel"))
 
     # --- house picture ---
     def show_house(self, delta):
@@ -996,10 +1083,16 @@ class Dial:
                 pb = GdkPixbuf.Pixbuf.new_from_file(HOUSE_IMAGE)
                 o.image = pb.scale_simple(HOUSE_WIDTH, int(pb.get_height() * HOUSE_WIDTH / pb.get_width()), GdkPixbuf.InterpType.BILINEAR)
             except GLib.Error:
-                self.show_label("🏠 Immagine non trovata")
+                self.show_label(L("no_image"))
                 return
         o.angle += delta * -self.sign * HOUSE_DEG_PER_UNIT
         o.show_for("image", 1500)
+
+    # --- language ---
+    def set_language(self, idx):
+        _lang[0] = LANGS[idx]
+        save_lang()
+        self.show_label(L("language", name=LANG_NAMES[_lang[0]]), idx / (len(LANGS) - 1))
 
     # --- keyboard backlight ---
     def get_keylight(self):
@@ -1015,11 +1108,11 @@ class Dial:
             self._power("Set", GLib.Variant("(ssv)", ("org.gnome.SettingsDaemon.Power.Keyboard", "Brightness",
                                                         GLib.Variant("i", round(level * 100 / KEYLIGHT_LEVELS)))))
         except GLib.Error:
-            self.show_label("⌨ Retroilluminazione non disponibile")
+            self.show_label(L("keylight_na"))
             return
         if level:
             self.keylight_last = level
-        self.show_label("⌨ Retroilluminazione " + (f"livello {level}/{KEYLIGHT_LEVELS}" if level else "spenta"), level / KEYLIGHT_LEVELS)
+        self.show_label(L("keylight_level", l=level, m=KEYLIGHT_LEVELS) if level else L("keylight_off"), level / KEYLIGHT_LEVELS)
 
     # --- dice ---
     def roll_dice(self):
@@ -1038,24 +1131,24 @@ class Dial:
             return
         for _ in range(abs(d)):
             self.timer_minutes = self._timer_next(self.timer_minutes, d > 0)
-        self.show_label(f"⏲ Timer {self.timer_minutes} min  (clic per avviare)", self.timer_minutes / TIMER_MAX)
+        self.show_label(L("timer_set", m=self.timer_minutes), self.timer_minutes / TIMER_MAX)
 
     def timer_left(self):
         return max(0.0, self.timer_end - GLib.get_monotonic_time() / 1e6)
 
     def show_timer_left(self):
         left = int(self.timer_left() + 0.99)
-        self.show_label(f"⏲ Mancano {left // 60}:{left % 60:02d}  (clic per annullare)", self.timer_left() / (self.timer_minutes * 60))
+        self.show_label(L("timer_left", mm=left // 60, ss=left % 60), self.timer_left() / (self.timer_minutes * 60))
 
     def timer_click(self):
         if self.timer_end:
             self.timer_cancel()
-            self.show_label("⏲ Timer annullato")
+            self.show_label(L("timer_cancelled"))
             return
         self.timer_end = GLib.get_monotonic_time() / 1e6 + self.timer_minutes * 60
         self.timer_id = GLib.timeout_add(250, self.timer_tick)
         self.chip_win.play(self.draw_chip, 0, size=(210, 56), where="topright", fps=2)
-        self.show_label(f"⏲ Timer avviato: {self.timer_minutes} min")
+        self.show_label(L("timer_started", m=self.timer_minutes))
 
     def timer_cancel(self):
         self.timer_end = 0.0
@@ -1087,7 +1180,7 @@ class Dial:
         text(cr, f"⏲ {left // 60}:{left % 60:02d}", 18, w / 2, h / 2)
 
     def ring(self):
-        self.tomato_win.play(make_tomato_draw(random.choice(TIMER_MESSAGES)), TOMATO_S, fps=30, on_done=self.stop_alarm)
+        self.tomato_win.play(make_tomato_draw(random.choice(TIMER_MESSAGES_L[_lang[0]])), TOMATO_S, fps=30, on_done=self.stop_alarm)
         cmd = f"while :; do paplay '{ALARM_SOUND}'; done" if os.path.exists(ALARM_SOUND) else "while :; do canberra-gtk-play -i alarm-clock-elapsed; done"
         self.alarm_proc = subprocess.Popen(["sh", "-c", cmd], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1131,9 +1224,9 @@ class Dial:
                 self.ui.tap(KEY_DOT if steps > 0 else KEY_COMMA, shift=True)
             self.speed = target
         else:
-            self.show_label("⏩ Nessun video da accelerare")
+            self.show_label(L("no_video_speed"))
             return
-        self.show_label(f"⏩ Velocità {self.speed:g}×", (self.speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN))
+        self.show_label(L("speed", x=self.speed), (self.speed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN))
 
     # --- night light ---
     def night_is_on(self):
@@ -1141,13 +1234,13 @@ class Dial:
 
     def night_toggle(self):
         if not self.color:
-            self.show_label("🌙 Luce notturna non disponibile")
+            self.show_label(L("night_na"))
         elif self.night_is_on():
             self.night_off()
-            self.show_label("🌙 Luce notturna spenta")
+            self.show_label(L("night_off"))
         else:
             self.night_on()
-            self.show_label(f"🌙 Luce notturna accesa  {self.color.get_uint('night-light-temperature')} K")
+            self.show_label(L("night_on", k=self.color.get_uint("night-light-temperature")))
 
     def night_on(self):
         c = self.color
@@ -1182,14 +1275,14 @@ class Dial:
 
     def night_step(self, d):
         if not self.color:
-            self.show_label("🌙 Luce notturna non disponibile")
+            self.show_label(L("night_na"))
             return
         k = max(NIGHT_MIN, min(NIGHT_MAX, self.color.get_uint("night-light-temperature") - d * NIGHT_STEP))  # clockwise = warmer
         self.color.set_uint("night-light-temperature", k)
         if not self.night_is_on():
             self.night_on()
         Gio.Settings.sync()
-        self.show_label(f"🌙 Luce notturna {k} K", (NIGHT_MAX - k) / (NIGHT_MAX - NIGHT_MIN))
+        self.show_label(L("night_k", k=k), (NIGHT_MAX - k) / (NIGHT_MAX - NIGHT_MIN))
 
     # --- window switcher (Alt held, Tab per step) ---
     def windows_step(self, d):
@@ -1218,7 +1311,7 @@ class Dial:
         self.ui.emit((EV_KEY, KEY_LEFTALT, 1))  # quick switch to the previous window
         self.ui.tap(KEY_TAB)
         self.ui.emit((EV_KEY, KEY_LEFTALT, 0))
-        self.show_label("🪟 Finestra precedente")
+        self.show_label(L("prev_window"))
 
     # --- OSD ---
     def show_label(self, label, value=None):
@@ -1228,11 +1321,11 @@ class Dial:
 
     def show_volume(self):
         v, muted = self.get_volume()
-        self.show_label(f"{'🔇' if muted else '🔊'} Volume {round(v * 100)}%" + (" (muto)" if muted else ""), v)
+        self.show_label(f"{'🔇' if muted else '🔊'} {L('volume')} {round(v * 100)}%" + (L("muted") if muted else ""), v)
 
     def show_brightness(self):
         b = self.get_brightness()
-        self.show_label(f"☀ Luminosità {b}%", b / 100)
+        self.show_label(L("brightness", b=b), b / 100)
 
 
 def main():
@@ -1240,6 +1333,7 @@ def main():
     p.add_argument("--menu-step", type=float, default=8, help="dial units per menu item")
     p.add_argument("--invert", action="store_true", help="invert rotation direction")
     args = p.parse_args()
+    load_lang()
     Dial(args)
     Gtk.main()
 

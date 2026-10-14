@@ -6,7 +6,7 @@
 
 # English
 
-Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with GNOME, with an on-screen radial menu and 16 modes.
+Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with GNOME, with an on-screen radial menu and 17 modes.
 
 The kernel creates no input device for the dial. This program reads the raw data from `hidraw`, turns it into actions (scroll, volume, zoom…) and shows a menu and messages on screen.
 
@@ -39,13 +39,16 @@ The kernel creates no input device for the dial. This program reads the raw data
 | ↔ **Arrows** | left / right arrow keys | Enter |
 | 🎲 **Dice** | picks the die (d4…d20) | rolls it, with an animation |
 | 🏠 **House** | tilts a picture (see below) | – |
+| 🌐 **Language** | cycles English → Español → Italiano (default: English) | shows the current language |
 | ⏻ **Power off** | keep rotating clockwise to arm a 5-second shutdown countdown | – |
 
 **Context-aware modes.** *Tabs* and *Find* show up in the menu only while the active window is a browser (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Outside a browser they disappear, and if one of them was your chosen mode the dial behaves like *Scroll* until you are back in the browser.
 
-**Timer.** When time is up the system alarm sound plays and a giant 🍅 splats on your screen for 10 seconds, with a random message ("Timer scaduto!", "Completato!", "Finito!" or "BOO!"). Click the dial to stop it.
+**Timer.** When time is up the system alarm sound plays and a giant 🍅 splats on your screen for 10 seconds, with a random message ("Timer expired!", "Completed!", "Finished!" or "BOO!", in the chosen language). Click the dial to stop it.
 
 **Easter egg.** In *Video* mode, if the active window is a browser and there is no video to control, the program opens a famous 1987 music video in your default browser (at most once a minute). To remove or change it, edit `RICKROLL_URL` and `RICKROLL_COOLDOWN_S` at the top of the `asus-dial` file.
+
+**Language.** Menu, messages and timer texts are in **English by default**. The *Language* mode switches between English, Spanish and Italian; the choice is saved in `~/.config/asus-dial.lang`. To add a language, add it to `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` and add a column to every entry of `STR` in the `asus-dial` file.
 
 **House.** Shows a picture that tilts as you rotate. Set the path of your own image in `HOUSE_IMAGE` at the top of the `asus-dial` file; if the file is missing you just get an "image not found" message.
 
@@ -133,7 +136,7 @@ Everything is at the top of the `asus-dial` file: mode names and icons (`NAMES`,
 ```bash
 systemctl --user disable --now asus-dial
 rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial
-rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json
+rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 ```
 
@@ -151,7 +154,7 @@ To be chosen by the author.
 
 # Español
 
-Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con GNOME, con un menú circular en pantalla y 16 modos.
+Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con GNOME, con un menú circular en pantalla y 17 modos.
 
 El kernel no crea ningún dispositivo de entrada para la rueda. Este programa lee los datos en bruto de `hidraw`, los convierte en acciones (desplazar, volumen, zoom…) y muestra un menú y mensajes en pantalla.
 
@@ -184,13 +187,16 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | ↔ **Flechas** | teclas de flecha izquierda / derecha | Intro |
 | 🎲 **Dado** | elige el dado (d4…d20) | lo tira, con animación |
 | 🏠 **Casa** | inclina una imagen (ver abajo) | – |
+| 🌐 **Idioma** | cambia entre English → Español → Italiano (por defecto: English) | muestra el idioma actual |
 | ⏻ **Apagar** | sigue girando en sentido horario para activar una cuenta atrás de 5 segundos | – |
 
 **Modos según el contexto.** *Pestañas* y *Buscar* aparecen en el menú solo cuando la ventana activa es un navegador (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Fuera del navegador desaparecen, y si uno de ellos era el modo elegido, la rueda se comporta como *Desplazar* hasta que vuelvas al navegador.
 
-**Temporizador.** Al terminar el tiempo suena la alarma del sistema y un 🍅 gigante se estrella contra la pantalla durante 10 segundos, con un mensaje al azar («Timer scaduto!», «Completato!», «Finito!» o «BOO!»). Un clic en la rueda lo detiene.
+**Temporizador.** Al terminar el tiempo suena la alarma del sistema y un 🍅 gigante se estrella contra la pantalla durante 10 segundos, con un mensaje al azar («¡Temporizador agotado!», «¡Completado!», «¡Terminado!» o «¡BU!», en el idioma elegido). Un clic en la rueda lo detiene.
 
 **Huevo de Pascua.** En el modo *Vídeo*, si la ventana activa es un navegador y no hay ningún vídeo que controlar, el programa abre un famoso videoclip de 1987 en tu navegador predeterminado (como máximo una vez por minuto). Para quitarlo o cambiarlo, edita `RICKROLL_URL` y `RICKROLL_COOLDOWN_S` al principio del archivo `asus-dial`.
+
+**Idioma.** El menú, los mensajes y los textos del temporizador están en **inglés por defecto**. El modo *Idioma* cambia entre inglés, español e italiano; la elección se guarda en `~/.config/asus-dial.lang`. Para añadir un idioma, añádelo a `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` y añade una columna a cada entrada de `STR` en el archivo `asus-dial`.
 
 **Casa.** Muestra una imagen que se inclina al girar. Pon la ruta de tu propia imagen en `HOUSE_IMAGE`, al principio del archivo `asus-dial`; si el archivo no existe solo verás el mensaje «imagen no encontrada».
 
@@ -278,7 +284,7 @@ Todo está al principio del archivo `asus-dial`: nombres e iconos de los modos (
 ```bash
 systemctl --user disable --now asus-dial
 rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial
-rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json
+rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 ```
 
@@ -296,7 +302,7 @@ Por elegir por el autor.
 
 # Italiano
 
-Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con GNOME, con un menu circolare a schermo e 16 modalità.
+Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con GNOME, con un menu circolare a schermo e 17 modalità.
 
 Il kernel non crea nessun dispositivo di input per la manopola. Questo programma legge i dati grezzi da `hidraw`, li trasforma in azioni (scorrere, volume, zoom…) e mostra un menu e dei messaggi a schermo.
 
@@ -329,13 +335,16 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | ↔ **Frecce** | tasti freccia sinistra / destra | Invio |
 | 🎲 **Dado** | sceglie il dado (d4…d20) | tira, con animazione |
 | 🏠 **Casa** | inclina un'immagine (vedi sotto) | – |
+| 🌐 **Lingua** | passa da English → Español → Italiano (predefinita: English) | mostra la lingua attuale |
 | ⏻ **Arresta** | ruotando a lungo in senso orario spegne il PC dopo un conto alla rovescia di 5 secondi | – |
 
 **Modalità che dipendono dal contesto.** *Schede* e *Trova* compaiono nel menu solo quando la finestra attiva è un browser (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Fuori dal browser spariscono, e se erano la modalità scelta la manopola si comporta come *Scorri* finché non torni nel browser.
 
-**Timer.** Alla fine suona la sveglia di sistema e un 🍅 gigante si spiaccica sullo schermo per 10 secondi, con una scritta a caso («Timer scaduto!», «Completato!», «Finito!», «BOO!»). Un clic sulla manopola ferma tutto.
+**Timer.** Alla fine suona la sveglia di sistema e un 🍅 gigante si spiaccica sullo schermo per 10 secondi, con una scritta a caso («Timer scaduto!», «Completato!», «Finito!», «BOO!», nella lingua scelta). Un clic sulla manopola ferma tutto.
 
 **Uovo di Pasqua.** In modalità *Video*, se la finestra attiva è un browser e non c'è nessun video da controllare, il programma apre un famoso video musicale del 1987 nel browser predefinito (al massimo una volta al minuto). Per toglierlo o cambiarlo, modifica `RICKROLL_URL` e `RICKROLL_COOLDOWN_S` in cima al file `asus-dial`.
+
+**Lingua.** Menu, messaggi e testi del timer sono in **inglese per impostazione predefinita**. La modalità *Lingua* passa tra inglese, spagnolo e italiano; la scelta viene salvata in `~/.config/asus-dial.lang`. Per aggiungere una lingua, aggiungila a `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` e aggiungi una colonna a ogni voce di `STR` nel file `asus-dial`.
 
 **Casa.** Mostra un'immagine che si inclina con la manopola. Metti il percorso della tua immagine in `HOUSE_IMAGE` in cima al file `asus-dial`; se il file non c'è, compare solo il messaggio «Immagine non trovata».
 
@@ -423,7 +432,7 @@ Tutto è in cima al file `asus-dial`: nomi e icone delle modalità (`NAMES`, `IC
 ```bash
 systemctl --user disable --now asus-dial
 rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial
-rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json
+rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 ```
 

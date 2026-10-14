@@ -118,6 +118,30 @@ STR = {
     "bad_image": ("This file could not be opened as an image.", "No se pudo abrir este archivo como imagen.",
                   "Impossibile aprire questo file come immagine."),
     "images": ("Images", "Imágenes", "Immagini"),
+    "tab_anim": ("Animations", "Animaciones", "Animazioni"),
+    "anim_in": ("When the menu appears", "Cuando aparece el menú", "Quando il menu compare"),
+    "anim_out": ("When the menu goes away", "Cuando el menú desaparece", "Quando il menu se ne va"),
+    "anim_type": ("Effect", "Efecto", "Effetto"),
+    "anim_ms": ("Duration (ms)", "Duración (ms)", "Durata (ms)"),
+    "anim_ease": ("Motion curve", "Curva de movimiento", "Curva di movimento"),
+    "anim_highlight": ("The highlight slides from slice to slice", "El resaltado se desliza de porción en porción",
+                       "L'evidenziazione scivola da una fetta all'altra"),
+    "anim_app": ("Animations in this app", "Animaciones en esta app", "Animazioni in questa app"),
+    "anim_app_type": ("Tab change", "Cambio de pestaña", "Cambio di scheda"),
+    "anim_note": ("Messages (volume, timer…) use the same effects. 0 ms = instant.",
+                  "Los mensajes (volumen, temporizador…) usan los mismos efectos. 0 ms = al instante.",
+                  "I messaggi (volume, timer…) usano gli stessi effetti. 0 ms = subito."),
+    "at_none": ("None", "Ninguno", "Nessuno"), "at_fade": ("Fade", "Fundido", "Dissolvenza"),
+    "at_zoom": ("Zoom", "Zoom", "Zoom"), "at_slide": ("Slide up", "Subir deslizando", "Scorrimento verso l'alto"),
+    "at_bounce": ("Bounce", "Rebote", "Rimbalzo"), "at_spin": ("Spin", "Giro", "Rotazione"),
+    "at_fan": ("Fan (clock wipe)", "Abanico (reloj)", "Ventaglio (lancette)"),
+    "ae_smooth": ("Smooth", "Suave", "Morbida"), "ae_linear": ("Linear", "Lineal", "Lineare"),
+    "ae_back": ("Overshoot", "Con rebasamiento", "Con sorpasso"), "ae_elastic": ("Elastic", "Elástica", "Elastica"),
+    "ae_bounce": ("Bouncy", "Con rebotes", "A rimbalzi"),
+    "ap_none": ("None", "Ninguna", "Nessuna"), "ap_crossfade": ("Crossfade", "Fundido cruzado", "Dissolvenza incrociata"),
+    "ap_slide": ("Slide sideways", "Deslizar de lado", "Scorrimento laterale"),
+    "ap_slide-up": ("Slide up/down", "Deslizar arriba/abajo", "Scorrimento verticale"),
+    "ap_over": ("Cover", "Cubrir", "Sovrapposizione"), "ap_under": ("Reveal", "Descubrir", "Scopri"),
     "tab_about": ("About", "Información", "Informazioni"),
     "about_made": ("Created by ALEXLIONBIT (human) together with Claude (an AI assistant made by Anthropic).",
                    "Creado por ALEXLIONBIT (humano) junto con Claude (un asistente de IA hecho por Anthropic).",
@@ -341,20 +365,25 @@ class Manager(Gtk.Window):
 
     # ---------------------------------------------------------------- UI
     def build(self):
-        for attr in ("tick_id", "wtick_id", "atick_id"):
+        for attr in ("tick_id", "wtick_id", "atick_id", "ptick_id"):
             if getattr(self, attr, 0):
                 GLib.source_remove(getattr(self, attr))
                 setattr(self, attr, 0)
         if self.root:
             self.remove(self.root)
         self.set_title(self.tr("title"))
-        nb = Gtk.Notebook()
-        nb.append_page(self.build_modes_tab(), Gtk.Label(label=self.tr("tab_modes")))
-        nb.append_page(self.build_look_tab(), Gtk.Label(label=self.tr("tab_look")))
-        nb.append_page(self.build_general_tab(), Gtk.Label(label=self.tr("tab_general")))
-        nb.append_page(self.build_about_tab(), Gtk.Label(label=self.tr("tab_about")))
-        self.root = nb
-        self.add(nb)
+        self.stack = Gtk.Stack()
+        for name, key, builder in (("modes", "tab_modes", self.build_modes_tab), ("look", "tab_look", self.build_look_tab),
+                                   ("anim", "tab_anim", self.build_anim_tab), ("general", "tab_general", self.build_general_tab),
+                                   ("about", "tab_about", self.build_about_tab)):
+            self.stack.add_titled(builder(), name, self.tr(key))
+        switcher = Gtk.StackSwitcher(stack=self.stack, halign=Gtk.Align.CENTER, margin_top=8)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.pack_start(switcher, False, False, 0)
+        box.pack_start(self.stack, True, True, 0)
+        self.root = box
+        self.add(box)
+        self.apply_app_anim()
         self.show_all()
         self.update_buttons()
 
@@ -785,6 +814,171 @@ class Manager(Gtk.Window):
         page.pack_end(path, False, False, 0)
         return page
 
+    # ---------------------------------------------------------------- animations
+    TRANSITIONS = {"none": "NONE", "crossfade": "CROSSFADE", "slide": "SLIDE_LEFT_RIGHT", "slide-up": "SLIDE_UP_DOWN",
+                   "over": "OVER_UP_DOWN", "under": "UNDER_UP_DOWN"}
+
+    def anim(self):
+        return acfg.animation_of(self.cfg)
+
+    def apply_app_anim(self):
+        an = self.anim()
+        kind = an["app_type"] if an["app"] else "none"
+        self.stack.set_transition_type(getattr(Gtk.StackTransitionType, self.TRANSITIONS[kind], Gtk.StackTransitionType.CROSSFADE))
+        self.stack.set_transition_duration(an["app_ms"] if an["app"] else 0)
+
+    def fade_in(self):
+        """The window fades in when it opens (if the app animations are on)."""
+        an = self.anim()
+        if not an["app"] or an["app_ms"] <= 0:
+            return
+        self.set_opacity(0.0)
+        t0 = time.monotonic()
+
+        def step():
+            u = min(1.0, (time.monotonic() - t0) / (an["app_ms"] / 1000))
+            self.set_opacity(ath.ease("smooth", u))
+            return u < 1.0
+
+        GLib.timeout_add(16, step)
+
+    def build_anim_tab(self):
+        self._aloading = True
+        an = self.anim()
+        page = Gtk.Box(spacing=14, border_width=14)
+        grid = Gtk.Grid(row_spacing=8, column_spacing=10)
+        page.pack_start(grid, False, True, 0)
+        self.aw = {}
+        row = [0]
+
+        def header(key):
+            lb = Gtk.Label(xalign=0)
+            lb.set_markup(f"<b>{GLib.markup_escape_text(self.tr(key))}</b>")
+            grid.attach(lb, 0, row[0], 2, 1)
+            row[0] += 1
+
+        def label(key):
+            grid.attach(Gtk.Label(label=self.tr(key), xalign=0), 0, row[0], 1, 1)
+
+        def combo(key, options, prefix, value, label_key):
+            label(label_key)
+            cb = Gtk.ComboBoxText(hexpand=True)
+            for o in options:
+                cb.append(o, self.tr(prefix + o))
+            cb.set_active_id(value)
+            cb.connect("changed", lambda c, k=key: self.set_anim(k, c.get_active_id()))
+            grid.attach(cb, 1, row[0], 1, 1)
+            self.aw[key] = cb
+            row[0] += 1
+
+        def slider(key, label_key=None):
+            label(label_key or "anim_ms")
+            sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 800, 10)
+            sc.set_value(an[key])
+            sc.set_hexpand(True)
+            sc.connect("value-changed", lambda c, k=key: self.set_anim(k, int(c.get_value())))
+            grid.attach(sc, 1, row[0], 1, 1)
+            self.aw[key] = sc
+            row[0] += 1
+
+        def check(key, label_key):
+            cb = Gtk.CheckButton(label=self.tr(label_key))
+            cb.set_active(an[key])
+            cb.connect("toggled", lambda c, k=key: self.set_anim(k, c.get_active()))
+            grid.attach(cb, 0, row[0], 2, 1)
+            self.aw[key] = cb
+            row[0] += 1
+
+        header("anim_in")
+        combo("in_type", acfg.ANIM_TYPES, "at_", an["in_type"], "anim_type")
+        slider("in_ms")
+        header("anim_out")
+        combo("out_type", acfg.ANIM_TYPES, "at_", an["out_type"], "anim_type")
+        slider("out_ms")
+        combo("ease", acfg.ANIM_EASES, "ae_", an["ease"], "anim_ease")
+        check("highlight", "anim_highlight")
+        slider("highlight_ms")
+        header("anim_app")
+        check("app", "anim_app")
+        combo("app_type", acfg.APP_TRANSITIONS, "ap_", an["app_type"], "anim_app_type")
+        slider("app_ms")
+        note = Gtk.Label(label=self.tr("anim_note"), xalign=0, wrap=True, max_width_chars=40)
+        note.get_style_context().add_class("dim-label")
+        grid.attach(note, 0, row[0], 2, 1)
+
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.pmenu = Gtk.DrawingArea()
+        self.pmenu.set_size_request(400, 400)
+        self.pmenu.set_hexpand(True)
+        self.pmenu.connect("draw", self.on_draw_anim_menu)
+        right.pack_start(self.pmenu, True, True, 0)
+        self.posd = Gtk.DrawingArea()
+        self.posd.set_size_request(400, 180)
+        self.posd.connect("draw", self.on_draw_anim_osd)
+        right.pack_start(self.posd, False, False, 0)
+        page.pack_start(right, True, True, 0)
+        self.pt0 = time.monotonic()
+        self.backdrops = getattr(self, "backdrops", {})
+        self.ptick_id = GLib.timeout_add(16, lambda: (self.pmenu.queue_draw(), self.posd.queue_draw(), True)[2])
+        self._aloading = False
+        return page
+
+    def set_anim(self, key, value):
+        if getattr(self, "_aloading", True):
+            return
+        self.cfg.setdefault("animation", {})[key] = value
+        if getattr(self, "save_id", 0):
+            GLib.source_remove(self.save_id)
+        self.save_id = GLib.timeout_add(250, self.flush_theme)
+        self.pt0 = time.monotonic()  # restart the preview
+        if key in ("app", "app_type", "app_ms"):
+            self.apply_app_anim()
+
+    def preview_phase(self):
+        """-> (anim tuple or None, visible?, sel position) for the looping preview."""
+        an = self.anim()
+        t_in, t_out = an["in_ms"] / 1000, an["out_ms"] / 1000
+        hold = 1.8
+        total = t_in + hold + t_out + 0.5
+        t = (time.monotonic() - self.pt0) % total
+        items = max(2, len(self.preview_items()))
+        if t < t_in and an["in_type"] != "none" and t_in > 0:
+            return (an["in_type"], t / t_in, an["ease"]), True, 2.0
+        t -= t_in
+        if t < hold:
+            u = (t - 0.5) / (an["highlight_ms"] / 1000 if an["highlight"] and an["highlight_ms"] else 0.001)
+            pos = 2.0 if t < 0.5 else (ath.sel_interp(2, min(5, items - 1), items, u, an["ease"]) if u < 1 else float(min(5, items - 1)))
+            return None, True, pos
+        t -= hold
+        if t < t_out and an["out_type"] != "none" and t_out > 0:
+            return (an["out_type"], 1.0 - t / t_out, an["ease"]), True, float(min(5, items - 1))
+        return None, False, 0.0
+
+    def on_draw_anim_menu(self, area, cr):
+        th = acfg.theme_of(self.cfg)
+        pad = ath.menu_pad(th)
+        ms = 560
+        Wn = ms + 2 * pad
+        k = min(area.get_allocated_width(), area.get_allocated_height()) / Wn
+        cr.scale(k, k)
+        bd = self.draw_preview(area, cr, Wn, Wn, pad)
+        anim, visible, pos = self.preview_phase()
+        if visible:
+            items = self.preview_items()
+            ath.draw_menu(cr, th, items, int(round(pos)) % len(items), time.monotonic() - self.pt0, ms, bd, sel_pos=pos, anim=anim)
+
+    def on_draw_anim_osd(self, area, cr):
+        th = acfg.theme_of(self.cfg)
+        pad = ath.osd_pad(th)
+        Wn, Hn = ath.OSD_W + 2 * pad, ath.OSD_H + 2 * pad
+        k = min(area.get_allocated_width() / Wn, area.get_allocated_height() / Hn, 1.0)
+        cr.translate((area.get_allocated_width() - Wn * k) / 2, 0)
+        cr.scale(k, k)
+        bd = self.draw_preview(area, cr, Wn, Hn, pad)
+        anim, visible, _pos = self.preview_phase()
+        if visible:
+            ath.draw_osd(cr, th, "🔊 Volume 62%", 0.62, time.monotonic() - self.pt0, bd, anim=anim)
+
     REPO_URL = "https://github.com/ALEXLIONBIT/asus-dial-linux-for-gnome"
 
     def build_about_tab(self):
@@ -1026,6 +1220,7 @@ def main():
     GLib.set_prgname("asus-dial-manager")
     win = Manager()
     win.show_all()
+    win.fade_in()
     Gtk.main()
 
 

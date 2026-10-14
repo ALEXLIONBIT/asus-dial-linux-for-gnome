@@ -42,6 +42,73 @@ def osd_pad(theme):
     return OSD_PAD_HALLOWEEN if theme.get("bg_type") == "halloween" else OSD_PAD
 
 
+# ------------------------------------------------------------------ animation helpers
+def ease(name, u):
+    """Motion curve. u in 0..1 -> about 0..1 (back/elastic overshoot a little)."""
+    u = max(0.0, min(1.0, u))
+    if name == "linear":
+        return u
+    if name == "back":
+        c1 = 1.70158
+        return 1 + (c1 + 1) * (u - 1) ** 3 + c1 * (u - 1) ** 2
+    if name == "elastic":
+        if u in (0.0, 1.0):
+            return u
+        return 2 ** (-10 * u) * math.sin((u * 10 - 0.75) * (2 * math.pi) / 3) + 1
+    if name == "bounce":
+        n1, d1 = 7.5625, 2.75
+        if u < 1 / d1:
+            return n1 * u * u
+        if u < 2 / d1:
+            u -= 1.5 / d1
+            return n1 * u * u + 0.75
+        if u < 2.5 / d1:
+            u -= 2.25 / d1
+            return n1 * u * u + 0.9375
+        u -= 2.625 / d1
+        return n1 * u * u + 0.984375
+    return u * u * (3 - 2 * u)  # smooth
+
+
+def sel_interp(frm, to, n, u, ease_name):
+    """Position of the sliding highlight between slice frm and slice to (shortest way round the circle)."""
+    d = ((to - frm + n / 2) % n) - n / 2
+    return (frm + d * ease(ease_name, u)) % n
+
+
+def draw_transition(cr, kind, p, ease_name, w, h, cx, cy, draw, osd=False):
+    """Draw draw(cr) while it appears (p going 0 -> 1) or goes away (p going 1 -> 0)."""
+    if kind == "none" or p >= 1.0:
+        draw(cr)
+        return
+    p = max(0.0, p)
+    e = ease(ease_name, p)
+    alpha = max(0.0, min(1.0, e if kind in ("fade", "slide", "zoom", "spin") else p * 2.2))
+    cr.save()
+    cr.push_group()
+    if kind == "fan":
+        if osd:
+            cr.rectangle(0, 0, w * min(1.0, e), h)
+        else:
+            cr.move_to(cx, cy)
+            cr.arc(cx, cy, math.hypot(w, h), -math.pi / 2, -math.pi / 2 + 2 * math.pi * min(1.0, e) + 0.001)
+            cr.close_path()
+        cr.clip()
+    elif kind in ("zoom", "bounce", "spin"):
+        sc = (0.55 + 0.45 * e) if kind == "zoom" else ((0.25 + 0.75 * ease("back", p)) if kind == "bounce" else 0.5 + 0.5 * e)
+        cr.translate(cx, cy)
+        if kind == "spin":
+            cr.rotate((1 - e) * -math.pi / 2)
+        cr.scale(max(0.01, sc), max(0.01, sc))
+        cr.translate(-cx, -cy)
+    elif kind == "slide":
+        cr.translate(0, (1 - e) * h * (0.18 if osd else 0.08))
+    draw(cr)
+    cr.pop_group_to_source()
+    cr.paint_with_alpha(alpha)
+    cr.restore()
+
+
 def text(cr, s, size, x, y, center=True, bold=False):
     """Pango text (glyph fallback for emoji); y is the vertical centre."""
     layout = PangoCairo.create_layout(cr)
@@ -530,8 +597,19 @@ def _halloween_osd_frame(cr, pad, w, h, t, speed):
 
 
 # ------------------------------------------------------------------ the menu
-def draw_menu(cr, theme, items, sel, t, msize, backdrop=None):
-    """items: [(icon, name)]. cr origin = top-left of the window (size msize + 2 * pad)."""
+def draw_menu(cr, theme, items, sel, t, msize, backdrop=None, sel_pos=None, anim=None):
+    """items: [(icon, name)]. cr origin = top-left of the window (size msize + 2 * pad).
+    sel_pos = where the highlight is (float, while it slides); anim = (kind, p, ease_name) while appearing or leaving."""
+    pad = menu_pad(theme)
+    W = msize + 2 * pad
+    draw = lambda c: _menu_body(c, theme, items, sel, t, msize, backdrop, sel if sel_pos is None else sel_pos)
+    if anim is None:
+        draw(cr)
+    else:
+        draw_transition(cr, anim[0], anim[1], anim[2], W, W, W / 2, W / 2, draw)
+
+
+def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
     pad = menu_pad(theme)
     R = msize / 2
     cx = cy = pad + R
@@ -577,25 +655,29 @@ def draw_menu(cr, theme, items, sel, t, msize, backdrop=None):
     else:
         cr.set_source_rgba(*rgb(theme["bg_color"], (0.08, 0.08, 0.1)), op)
         cr.paint()
+    step = 2 * math.pi / n
     for i in range(n):  # slices
-        a0 = -math.pi / 2 + (i - 0.5) * 2 * math.pi / n
-        a1 = a0 + 2 * math.pi / n
+        a0 = -math.pi / 2 + (i - 0.5) * step
         cr.new_path()
-        cr.arc(cx, cy, r_out, a0 + 0.02, a1 - 0.02)
-        cr.arc_negative(cx, cy, r_in, a1 - 0.02, a0 + 0.02)
+        cr.arc(cx, cy, r_out, a0 + 0.02, a0 + step - 0.02)
+        cr.arc_negative(cx, cy, r_in, a0 + step - 0.02, a0 + 0.02)
         cr.close_path()
-        if i == sel:
-            if theme["glow"]:
-                gc = rgb(theme["glow_color"], accent)
-                cr.set_line_join(cairo.LINE_JOIN_ROUND)
-                for lw, al in ((26, 0.08), (16, 0.14), (8, 0.22)):
-                    cr.set_source_rgba(*gc, al * (0.4 + theme["glow_strength"]))
-                    cr.set_line_width(lw)
-                    cr.stroke_preserve()
-            cr.set_source_rgba(*accent, 0.95)
-        else:
-            cr.set_source_rgba(*tc, 0.07 if kind != "halloween" else 0.05)
+        cr.set_source_rgba(*tc, 0.07 if kind != "halloween" else 0.05)
         cr.fill()
+    a0 = -math.pi / 2 + (sp - 0.5) * step  # the highlighted slice (it can sit between two slices while it slides)
+    cr.new_path()
+    cr.arc(cx, cy, r_out, a0 + 0.02, a0 + step - 0.02)
+    cr.arc_negative(cx, cy, r_in, a0 + step - 0.02, a0 + 0.02)
+    cr.close_path()
+    if theme["glow"]:
+        gc = rgb(theme["glow_color"], accent)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+        for lw, al in ((26, 0.08), (16, 0.14), (8, 0.22)):
+            cr.set_source_rgba(*gc, al * (0.4 + theme["glow_strength"]))
+            cr.set_line_width(lw)
+            cr.stroke_preserve()
+    cr.set_source_rgba(*accent, 0.95)
+    cr.fill()
     if theme["reflection"] > 0:  # glossy highlight on the upper part
         k = theme["reflection"]
         cr.save()
@@ -634,8 +716,18 @@ def draw_menu(cr, theme, items, sel, t, msize, backdrop=None):
 
 
 # ------------------------------------------------------------------ the on-screen message
-def draw_osd(cr, theme, label, value, t, backdrop=None):
+def draw_osd(cr, theme, label, value, t, backdrop=None, anim=None):
     """cr origin = top-left of the window (size OSD_W + 2 pad, OSD_H + 2 pad)."""
+    pad = osd_pad(theme)
+    W, Hh = OSD_W + 2 * pad, OSD_H + 2 * pad
+    draw = lambda c: _osd_body(c, theme, label, value, t, backdrop)
+    if anim is None:
+        draw(cr)
+    else:
+        draw_transition(cr, anim[0], anim[1], anim[2], W, Hh, W / 2, Hh * 0.7, draw, osd=True)
+
+
+def _osd_body(cr, theme, label, value, t, backdrop):
     pad = osd_pad(theme)
     w, h, r = OSD_W, OSD_H, 22
     x0, y0 = pad, pad

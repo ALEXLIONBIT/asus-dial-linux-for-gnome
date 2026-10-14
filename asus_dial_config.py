@@ -83,12 +83,47 @@ def theme_of(cfg):
     return th
 
 
+# Animations of the menu / messages (driver) and of the settings app
+ANIM_TYPES = ("none", "fade", "zoom", "slide", "bounce", "spin", "fan")
+ANIM_EASES = ("smooth", "linear", "back", "elastic", "bounce")
+APP_TRANSITIONS = ("none", "crossfade", "slide", "slide-up", "over", "under")
+DEFAULT_ANIMATION = {
+    "in_type": "zoom", "in_ms": 220,        # how the menu appears
+    "out_type": "fade", "out_ms": 160,      # how it goes away (0 ms or "none" = at once)
+    "ease": "smooth",                       # motion curve
+    "highlight": True, "highlight_ms": 120, # the selected slice slides from one slice to the next
+    "app": True, "app_type": "crossfade", "app_ms": 250,  # settings app: tab change and window fade-in
+}
+
+
+def animation_of(cfg):
+    """The animation settings with every key present and valid."""
+    an = dict(DEFAULT_ANIMATION)
+    user = cfg.get("animation") if isinstance(cfg.get("animation"), dict) else {}
+    for k, v in user.items():
+        if k in an and (isinstance(v, type(an[k])) and not (isinstance(an[k], int) and isinstance(v, bool)) or
+                        (isinstance(an[k], bool) and isinstance(v, bool))):
+            an[k] = v
+    if an["in_type"] not in ANIM_TYPES:
+        an["in_type"] = DEFAULT_ANIMATION["in_type"]
+    if an["out_type"] not in ANIM_TYPES:
+        an["out_type"] = DEFAULT_ANIMATION["out_type"]
+    if an["ease"] not in ANIM_EASES:
+        an["ease"] = "smooth"
+    if an["app_type"] not in APP_TRANSITIONS:
+        an["app_type"] = "crossfade"
+    for k in ("in_ms", "out_ms", "highlight_ms", "app_ms"):
+        an[k] = max(0, min(800, int(an[k])))
+    return an
+
+
 DEFAULT_CONFIG = {
     "version": 1,
     "modes": {"disabled": [], "order": list(DEFAULT_ORDER)},
     "custom": [],  # {"id": "p", "name": "P", "icon": "⌨", "click": "p", "cw": "", "ccw": ""}
     "welcome": {"enabled": True, "character": "human", "color": "#4080ff", "rainbow": False, "image": "", "message": "", "name": ""},
     "theme": {},
+    "animation": {},
 }
 
 

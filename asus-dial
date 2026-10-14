@@ -726,14 +726,18 @@ class Overlay(Gtk.Window):
         self.image = None  # GdkPixbuf shown by kind == "image"
         self.angle = 0.0
         self.theme = acfg.theme_of({})
+        self.anim_cfg = acfg.animation_of({})
         self.backdrop = None  # blurred snapshot of the screen behind the window (frosted-glass theme)
-        self.anim_id = 0
+        self.frame_id = 0
         self.t0 = 0.0
+        self.vis, self.vis_from, self.vis_t0, self.vis_dir, self.hiding = 0.0, 0.0, 0.0, 0, False  # appearance progress 0..1
+        self.sel_from, self.sel_t0, self.sel_shown = None, 0.0, 0  # sliding highlight
 
     def show_for(self, kind, timeout_ms):
         was_visible = self.get_visible()
+        kind_changed = was_visible and kind != self.kind
         self.kind = kind
-        th = self.theme
+        th, an = self.theme, self.anim_cfg
         if kind == "menu":
             pad = ath.menu_pad(th)
             w = h = self.msize + 2 * pad
@@ -752,29 +756,101 @@ class Overlay(Gtk.Window):
         else:
             y = g.y + (g.height - h) // 2
         self.move(x, y)
+        now = GLib.get_monotonic_time() / 1e6
         if not was_visible:
-            self.t0 = GLib.get_monotonic_time() / 1e6
+            self.t0 = now
             # frosted glass: blur what is behind the window, taken just before it appears
             self.backdrop = ath.capture_backdrop(x, y, w, h, th["blur"]) if kind in ("menu", "osd") and th["blur"] > 0 else None
+        elif kind_changed:
+            self.backdrop = None
+        # the highlight slides from the old slice to the new one
+        if kind == "menu":
+            n = len(self.items)
+            if (not was_visible or kind_changed) or n < 2:
+                self.sel_from = None
+            elif self.sel != self.sel_shown and an["highlight"] and an["highlight_ms"] > 0:
+                self.sel_from, self.sel_t0 = self.sel_pos(now), now
+            self.sel_shown = self.sel
+        # appearing: from where it is now (0 when it was hidden) up to 1
+        animated = kind in ("menu", "osd") and an["in_type"] != "none" and an["in_ms"] > 0
+        if not was_visible or kind_changed:
+            self.vis = 0.0 if animated else 1.0
+        if self.hiding or self.vis < 1.0:
+            if animated:
+                self.vis_from, self.vis_t0, self.vis_dir = self.vis, now, 1
+            else:
+                self.vis, self.vis_dir = 1.0, 0
+        self.hiding = False
         self.show_all()
         self.queue_draw()
-        if kind in ("menu", "osd") and ath.is_animated(th) and not self.anim_id:
-            self.anim_id = GLib.timeout_add(40, self._anim)
+        self._ensure_frames()
         if self.hide_id:
             GLib.source_remove(self.hide_id)
         self.hide_id = GLib.timeout_add(timeout_ms, self._timeout)
 
-    def _anim(self):
+    # --- smooth appearance / disappearance and the sliding highlight
+    def sel_pos(self, now):
+        """Where the highlight is right now (a float slice index while it slides)."""
+        an = self.anim_cfg
+        if self.sel_from is None:
+            return float(self.sel)
+        u = (now - self.sel_t0) / max(0.001, an["highlight_ms"] / 1000)
+        if u >= 1.0:
+            self.sel_from = None
+            return float(self.sel)
+        return ath.sel_interp(self.sel_from, self.sel, max(1, len(self.items)), u, an["ease"])
+
+    def _ensure_frames(self):
+        now = GLib.get_monotonic_time() / 1e6
+        busy = self.vis_dir != 0 or self.sel_from is not None or (self.kind in ("menu", "osd") and ath.is_animated(self.theme))
+        if busy and not self.frame_id and self.get_visible():
+            self.frame_id = GLib.timeout_add(16, self._frame)
+
+    def _frame(self):
         if not self.get_visible():
-            self.anim_id = 0
+            self.frame_id = 0
             return False
+        now = GLib.get_monotonic_time() / 1e6
+        an = self.anim_cfg
+        if self.vis_dir != 0:
+            dur = max(0.001, (an["in_ms"] if self.vis_dir > 0 else an["out_ms"]) / 1000)
+            p = self.vis_from + self.vis_dir * (now - self.vis_t0) / dur
+            if self.vis_dir > 0 and p >= 1.0:
+                p, self.vis_dir = 1.0, 0
+            elif self.vis_dir < 0 and p <= 0.0:
+                self.frame_id = 0
+                self._really_hide()
+                return False
+            self.vis = p
         self.queue_draw()
+        if self.vis_dir == 0 and self.sel_from is None and not (self.kind in ("menu", "osd") and ath.is_animated(self.theme)):
+            self.frame_id = 0
+            return False
         return True
+
+    def begin_hide(self):
+        """Go away: with the 'out' animation if there is one, at once otherwise."""
+        if not self.get_visible() or self.hiding:
+            return
+        an = self.anim_cfg
+        if self.kind not in ("menu", "osd") or an["out_type"] == "none" or an["out_ms"] <= 0:
+            self._really_hide()
+            return
+        self.hiding = True
+        self.vis_from, self.vis_t0, self.vis_dir = self.vis, GLib.get_monotonic_time() / 1e6, -1
+        self._ensure_frames()
+
+    def _really_hide(self):
+        self.hiding = False
+        self.vis_dir = 0
+        self.vis = 0.0
+        self.hide()
 
     def _timeout(self):
         self.hide_id = 0
-        self.hide()
-        if self.kind == "menu" and self.on_menu_timeout:
+        was_menu = self.kind == "menu"
+        self.begin_hide()
+        if was_menu and self.on_menu_timeout:
             self.on_menu_timeout()
         return False
 
@@ -782,21 +858,27 @@ class Overlay(Gtk.Window):
         if self.hide_id:
             GLib.source_remove(self.hide_id)
             self.hide_id = 0
-        self.hide()
+        self.begin_hide()
 
     def on_draw(self, _w, cr):
         cr.set_operator(cairo.OPERATOR_SOURCE)
         cr.set_source_rgba(0, 0, 0, 0)
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
-        t = GLib.get_monotonic_time() / 1e6 - self.t0
+        now = GLib.get_monotonic_time() / 1e6
+        t = now - self.t0
+        an = self.anim_cfg
+        anim = None
+        if self.kind in ("menu", "osd") and self.vis < 1.0:
+            anim = (an["out_type"] if self.hiding else an["in_type"], self.vis, an["ease"])
         if self.kind == "menu":
             items = [(ticon(i), tname(i)) for i in self.items]
-            ath.draw_menu(cr, self.theme, items, min(self.sel, len(items) - 1), t, self.msize, self.backdrop)
+            sel = min(self.sel, len(items) - 1)
+            ath.draw_menu(cr, self.theme, items, sel, t, self.msize, self.backdrop, sel_pos=self.sel_pos(now), anim=anim)
         elif self.kind == "image":
             self.draw_image(cr)
         else:
-            ath.draw_osd(cr, self.theme, self.label, self.value, t, self.backdrop)
+            ath.draw_osd(cr, self.theme, self.label, self.value, t, self.backdrop, anim=anim)
 
     def draw_image(self, cr):
         iw, ih = self.image.get_width(), self.image.get_height()
@@ -883,6 +965,7 @@ class Dial:
                 tools.append(ID_TO_TOOL[mode_id])
         self.menu_tools = tools or [SCROLL]
         self.overlay.theme = acfg.theme_of(self.cfg)
+        self.overlay.anim_cfg = acfg.animation_of(self.cfg)
         if getattr(self, "tool", SCROLL) >= CUSTOM_BASE:  # the custom list may have changed: find the mode again
             cid = self.cur_custom_id
             self.tool = CUSTOM_BASE + ids.index(cid) if cid in ids else SCROLL

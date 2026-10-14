@@ -6,7 +6,7 @@
 
 # English
 
-Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with GNOME, with an on-screen radial menu and 17 modes.
+Unofficial driver for the **ASUS Dial** knob (found on ProArt StudioBook laptops) on Linux with GNOME, with an on-screen radial menu and 18 modes.
 
 The kernel creates no input device for the dial. This program reads the raw data from `hidraw`, turns it into actions (scroll, volume, zoom…) and shows a menu and messages on screen.
 
@@ -39,6 +39,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 | ↔ **Arrows** | left / right arrow keys | Enter |
 | 🎲 **Dice** | picks the die (d4…d20) | rolls it, with an animation |
 | 🏠 **House** | tilts a picture (see below) | – |
+| ✨ **Rickroll** | – | a divine light show, then your default browser opens the video full screen |
 | 🌐 **Language** | cycles English → Español → Italiano (default: English) | shows the current language |
 | ⏻ **Power off** | keep rotating clockwise to arm a 5-second shutdown countdown | – |
 
@@ -46,7 +47,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 
 **Timer.** When time is up the system alarm sound plays and a giant 🍅 splats on your screen for 10 seconds, with a random message ("Timer expired!", "Completed!", "Finished!" or "BOO!", in the chosen language). Click the dial to stop it.
 
-**Easter egg.** In *Video* mode, if the active window is a browser and there is no video to control, the program opens a famous 1987 music video in your default browser (at most once a minute). To remove or change it, edit `RICKROLL_URL` and `RICKROLL_COOLDOWN_S` at the top of the `asus-dial` file.
+**Rickroll.** Click the dial in this mode: the screen dims, golden rays and sparkles fill it with heavenly light, the lyrics appear and, in a blinding white flash, your default browser opens a famous 1987 music video and puts it **full screen** (it presses `K` if autoplay was blocked, then `F`, so it needs a YouTube page; press `Esc` to leave). Change the video by editing `RICKROLL_URL` at the top of the `asus-dial` file.
 
 **Language.** Menu, messages and timer texts are in **English by default**. The *Language* mode switches between English, Spanish and Italian; the choice is saved in `~/.config/asus-dial.lang`. To add a language, add it to `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` and add a column to every entry of `STR` in the `asus-dial` file.
 
@@ -154,7 +155,7 @@ To be chosen by the author.
 
 # Español
 
-Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con GNOME, con un menú circular en pantalla y 17 modos.
+Controlador no oficial para la rueda **ASUS Dial** (la de los portátiles ProArt StudioBook) en Linux con GNOME, con un menú circular en pantalla y 18 modos.
 
 El kernel no crea ningún dispositivo de entrada para la rueda. Este programa lee los datos en bruto de `hidraw`, los convierte en acciones (desplazar, volumen, zoom…) y muestra un menú y mensajes en pantalla.
 
@@ -187,6 +188,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | ↔ **Flechas** | teclas de flecha izquierda / derecha | Intro |
 | 🎲 **Dado** | elige el dado (d4…d20) | lo tira, con animación |
 | 🏠 **Casa** | inclina una imagen (ver abajo) | – |
+| ✨ **Rickroll** | – | un espectáculo de luz divina y luego tu navegador predeterminado abre el vídeo a pantalla completa |
 | 🌐 **Idioma** | cambia entre English → Español → Italiano (por defecto: English) | muestra el idioma actual |
 | ⏻ **Apagar** | sigue girando en sentido horario para activar una cuenta atrás de 5 segundos | – |
 
@@ -194,7 +196,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 
 **Temporizador.** Al terminar el tiempo suena la alarma del sistema y un 🍅 gigante se estrella contra la pantalla durante 10 segundos, con un mensaje al azar («¡Temporizador agotado!», «¡Completado!», «¡Terminado!» o «¡BU!», en el idioma elegido). Un clic en la rueda lo detiene.
 
-**Huevo de Pascua.** En el modo *Vídeo*, si la ventana activa es un navegador y no hay ningún vídeo que controlar, el programa abre un famoso videoclip de 1987 en tu navegador predeterminado (como máximo una vez por minuto). Para quitarlo o cambiarlo, edita `RICKROLL_URL` y `RICKROLL_COOLDOWN_S` al principio del archivo `asus-dial`.
+**Rickroll.** Haz clic en la rueda en este modo: la pantalla se oscurece, rayos dorados y destellos la llenan de luz celestial, aparece la letra y, con un destello blanco cegador, tu navegador predeterminado abre un famoso videoclip de 1987 y lo pone a **pantalla completa** (pulsa `K` si la reproducción automática estaba bloqueada y luego `F`, así que necesita una página de YouTube; pulsa `Esc` para salir). Para cambiar el vídeo, edita `RICKROLL_URL` al principio del archivo `asus-dial`.
 
 **Idioma.** El menú, los mensajes y los textos del temporizador están en **inglés por defecto**. El modo *Idioma* cambia entre inglés, español e italiano; la elección se guarda en `~/.config/asus-dial.lang`. Para añadir un idioma, añádelo a `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` y añade una columna a cada entrada de `STR` en el archivo `asus-dial`.
 
@@ -302,7 +304,7 @@ Por elegir por el autor.
 
 # Italiano
 
-Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con GNOME, con un menu circolare a schermo e 17 modalità.
+Driver non ufficiale per la **manopola ASUS Dial** (quella dei portatili ProArt StudioBook) su Linux con GNOME, con un menu circolare a schermo e 18 modalità.
 
 Il kernel non crea nessun dispositivo di input per la manopola. Questo programma legge i dati grezzi da `hidraw`, li trasforma in azioni (scorrere, volume, zoom…) e mostra un menu e dei messaggi a schermo.
 
@@ -335,6 +337,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | ↔ **Frecce** | tasti freccia sinistra / destra | Invio |
 | 🎲 **Dado** | sceglie il dado (d4…d20) | tira, con animazione |
 | 🏠 **Casa** | inclina un'immagine (vedi sotto) | – |
+| ✨ **Rickroll** | – | uno spettacolo di luce divina, poi il browser predefinito apre il video a schermo intero |
 | 🌐 **Lingua** | passa da English → Español → Italiano (predefinita: English) | mostra la lingua attuale |
 | ⏻ **Arresta** | ruotando a lungo in senso orario spegne il PC dopo un conto alla rovescia di 5 secondi | – |
 
@@ -342,7 +345,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 
 **Timer.** Alla fine suona la sveglia di sistema e un 🍅 gigante si spiaccica sullo schermo per 10 secondi, con una scritta a caso («Timer scaduto!», «Completato!», «Finito!», «BOO!», nella lingua scelta). Un clic sulla manopola ferma tutto.
 
-**Uovo di Pasqua.** In modalità *Video*, se la finestra attiva è un browser e non c'è nessun video da controllare, il programma apre un famoso video musicale del 1987 nel browser predefinito (al massimo una volta al minuto). Per toglierlo o cambiarlo, modifica `RICKROLL_URL` e `RICKROLL_COOLDOWN_S` in cima al file `asus-dial`.
+**Rickroll.** Clicca la manopola in questa modalità: lo schermo si oscura, raggi dorati e scintille lo riempiono di luce divina, compare il testo della canzone e, con un lampo bianco accecante, il browser predefinito apre un famoso video musicale del 1987 e lo mette a **schermo intero** (preme `K` se la riproduzione automatica era bloccata, poi `F`, quindi serve una pagina di YouTube; premi `Esc` per uscire). Per cambiare il video modifica `RICKROLL_URL` in cima al file `asus-dial`.
 
 **Lingua.** Menu, messaggi e testi del timer sono in **inglese per impostazione predefinita**. La modalità *Lingua* passa tra inglese, spagnolo e italiano; la scelta viene salvata in `~/.config/asus-dial.lang`. Per aggiungere una lingua, aggiungila a `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` e aggiungi una colonna a ogni voce di `STR` nel file `asus-dial`.
 

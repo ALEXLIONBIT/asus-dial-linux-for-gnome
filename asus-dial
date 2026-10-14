@@ -25,16 +25,16 @@ EV_SYN, EV_KEY, EV_REL = 0, 1, 2
 REL_X, REL_Y, REL_WHEEL, REL_WHEEL_HI_RES = 0, 1, 8, 0x0B
 BTN_LEFT, BTN_MIDDLE = 0x110, 0x112
 KEY_0, KEY_ENTER, KEY_LEFTCTRL, KEY_PAGEUP, KEY_LEFT, KEY_RIGHT, KEY_PAGEDOWN, KEY_PLAYPAUSE = 11, 28, 29, 104, 105, 106, 109, 164
-KEY_F, KEY_TAB, KEY_LEFTSHIFT, KEY_LEFTALT, KEY_F3, KEY_COMMA, KEY_DOT = 33, 15, 42, 56, 61, 51, 52
+KEY_F, KEY_TAB, KEY_LEFTSHIFT, KEY_LEFTALT, KEY_F3, KEY_COMMA, KEY_DOT, KEY_K = 33, 15, 42, 56, 61, 51, 52, 37
 KEYS = (BTN_LEFT, BTN_MIDDLE, KEY_0, KEY_ENTER, KEY_LEFTCTRL, KEY_PAGEUP, KEY_LEFT, KEY_RIGHT, KEY_PAGEDOWN, KEY_PLAYPAUSE,
-        KEY_F, KEY_TAB, KEY_LEFTSHIFT, KEY_LEFTALT, KEY_F3, KEY_COMMA, KEY_DOT)
+        KEY_F, KEY_TAB, KEY_LEFTSHIFT, KEY_LEFTALT, KEY_F3, KEY_COMMA, KEY_DOT, KEY_K)
 
 MENU_TIMEOUT_MS = 10000
 MENU_SIZE = 560
 HOLD_MS = 350
 PRESS_ROTATE_UNITS = 5  # total travel while pressed that opens the menu (net is noisy under pressure)
-SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE = range(17)
-ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨", "🌐"]
+SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE, RICK = range(18)
+ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨", "🌐", "✨"]
 
 # --- languages: English (default), Spanish, Italian ---
 LANGS = ("en", "es", "it")
@@ -42,11 +42,11 @@ LANG_NAMES = {"en": "English", "es": "Español", "it": "Italiano"}
 LANG_FILE = os.path.expanduser("~/.config/asus-dial.lang")
 NAMES_L = {
     "en": ["Scroll", "Volume", "Brightness", "Zoom", "Video", "Tabs", "Arrows", "House", "Power off",
-           "Dice", "Timer", "Speed", "Light", "Windows", "Find", "Keyboard", "Language"],
+           "Dice", "Timer", "Speed", "Light", "Windows", "Find", "Keyboard", "Language", "Rickroll"],
     "es": ["Desplazar", "Volumen", "Brillo", "Zoom", "Vídeo", "Pestañas", "Flechas", "Casa", "Apagar",
-           "Dado", "Temporiz.", "Velocidad", "Luz", "Ventanas", "Buscar", "Teclado", "Idioma"],
+           "Dado", "Temporiz.", "Velocidad", "Luz", "Ventanas", "Buscar", "Teclado", "Idioma", "Rickroll"],
     "it": ["Scorri", "Volume", "Luminosità", "Zoom", "Video", "Schede", "Frecce", "Casa", "Arresta",
-           "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera", "Lingua"],
+           "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera", "Lingua", "Rickroll"],
 }
 # message key -> (English, Spanish, Italian); placeholders use str.format names
 STR = {
@@ -64,7 +64,7 @@ STR = {
     "find_open": ("🔎 Find in page", "🔎 Buscar en la página", "🔎 Cerca nella pagina"),
     "hold_hint": ("(hold for the menu)", "(mantén pulsado para el menú)", "(tieni premuto per il menu)"),
     "screen_zoom": ("🔍 Screen zoom {f:g}×", "🔍 Zoom de pantalla {f:g}×", "🔍 Zoom schermo {f:g}×"),
-    "no_video_browser": ("▶ No video in the browser… 🎵", "▶ No hay vídeo en el navegador… 🎵", "▶ Nessun video nel browser… 🎵"),
+    "rick_hint": ("✨ Rickroll  (click to ascend)", "✨ Rickroll  (clic para ascender)", "✨ Rickroll  (clic per ascendere)"),
     "power_rotate": ("⏻ Rotate to shut the system down", "⏻ Gira para apagar el sistema", "⏻ Ruota per arrestare il sistema"),
     "power_count": ("⏻ Shutting down in {n} s — click or rotate to cancel", "⏻ Apagado en {n} s — clic o giro para cancelar",
                     "⏻ Arresto tra {n} s — clic o rotazione per annullare"),
@@ -121,7 +121,7 @@ def save_lang():
             f.write(_lang[0])
     except OSError:
         pass
-MENU_ORDER = [SCROLL, VOLUME, BRIGHT, KEYLIGHT, NIGHT, ZOOM, VIDEO, SPEED, TIMER, TABS, FIND, WINDOWS, ARROWS, DICE, HOUSE, LANGUAGE, POWER]
+MENU_ORDER = [SCROLL, VOLUME, BRIGHT, KEYLIGHT, NIGHT, ZOOM, VIDEO, SPEED, TIMER, TABS, FIND, WINDOWS, ARROWS, DICE, HOUSE, RICK, LANGUAGE, POWER]
 HOUSE_IMAGE = os.path.expanduser("~/Immagini/casa.png")  # any picture you like
 HOUSE_WIDTH = 640  # px on screen
 HOUSE_DEG_PER_UNIT = 2.0  # the picture tilts with the dial
@@ -147,7 +147,9 @@ NIGHT_MIN, NIGHT_MAX, NIGHT_STEP = 1700, 4700, 200
 NIGHT_STATE = os.path.expanduser("~/.config/asus-dial.night.json")
 ALT_RELEASE_MS = 1200  # idle time after which the window switcher confirms
 RICKROLL_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-RICKROLL_COOLDOWN_S = 60  # don't open a new tab on every detent
+RICK_ANIM_S = 3.4  # length of the divine animation
+RICK_OPEN_AT_S = 2.55  # when, during the white flash, the browser is opened
+RICK_SOUND = "/usr/share/sounds/freedesktop/stereo/complete.oga"
 
 
 def _IOW(nr, size):
@@ -206,8 +208,8 @@ def ease_out(u):
     return 1 - (1 - u) ** 3
 
 
-def outlined_text(cr, s, px, x, y):
-    """Big white bold text with a dark outline, centred on x, y (px = pixel height)."""
+def outlined_text(cr, s, px, x, y, fill=(1, 1, 1), alpha=1.0):
+    """Big bold text (white by default) with a dark outline, centred on x, y (px = pixel height)."""
     layout = PangoCairo.create_layout(cr)
     fd = Pango.FontDescription("Sans Bold")
     fd.set_absolute_size(px * Pango.SCALE)
@@ -218,9 +220,9 @@ def outlined_text(cr, s, px, x, y):
     PangoCairo.layout_path(cr, layout)
     cr.set_line_join(cairo.LINE_JOIN_ROUND)
     cr.set_line_width(max(2.0, px * 0.12))
-    cr.set_source_rgba(0, 0, 0, 0.85)
+    cr.set_source_rgba(0, 0, 0, 0.85 * alpha)
     cr.stroke_preserve()
-    cr.set_source_rgba(1, 1, 1, 1)
+    cr.set_source_rgba(*fill, alpha)
     cr.fill()
 
 
@@ -397,6 +399,76 @@ def make_dice_draw(sides, result):
             outlined_text(cr, f"d{sides}  →  {result}", 34, w / 2, h * 0.93)
         cr.pop_group_to_source()
         cr.paint_with_alpha(fade)
+
+    return draw
+
+
+def make_divine_draw():
+    """Heavenly light: the screen dims, golden rays turn, halos expand, sparkles rise, lyrics appear, white flash."""
+    rnd = random.Random()
+    sparks = [(rnd.uniform(0, 2 * math.pi), rnd.uniform(0.05, 0.9), rnd.uniform(0.2, 1.0), rnd.uniform(0, 6.28), rnd.uniform(0.012, 0.03))
+              for _ in range(90)]
+    lines = (("Never gonna give you up", 0.5, 1.6), ("Never gonna let you down", 1.6, 2.5))
+
+    def draw(cr, t, w, h):
+        cx, cy = w / 2, h / 2
+        big = math.hypot(w, h)
+        grow = ease_out(min(1.0, t / 1.4))
+        cr.set_source_rgba(0.02, 0.01, 0.08, 0.6 * min(1.0, t / 0.5))  # dim the world
+        cr.paint()
+        cr.save()  # rotating rays of light
+        cr.translate(cx, cy)
+        cr.rotate(t * 0.55)
+        glow = cairo.RadialGradient(0, 0, 0, 0, 0, big * 0.6)
+        glow.add_color_stop_rgba(0, 1, 0.95, 0.65, 0.75 * grow)
+        glow.add_color_stop_rgba(0.5, 1, 0.8, 0.3, 0.3 * grow)
+        glow.add_color_stop_rgba(1, 1, 0.7, 0.2, 0)
+        cr.set_source(glow)
+        n = 28
+        for i in range(n):
+            a = i * 2 * math.pi / n
+            cr.move_to(0, 0)
+            cr.line_to(big * math.cos(a), big * math.sin(a))
+            cr.line_to(big * math.cos(a + math.pi / n * 0.8), big * math.sin(a + math.pi / n * 0.8))
+            cr.close_path()
+            cr.fill()
+        cr.restore()
+        for k in range(3):  # expanding halos
+            ph = (t * 0.45 + k / 3) % 1.0
+            cr.arc(cx, cy, ph * h * 0.75, 0, 2 * math.pi)
+            cr.set_source_rgba(1, 0.92, 0.55, 0.7 * (1 - ph) * grow)
+            cr.set_line_width(4 + 10 * (1 - ph))
+            cr.stroke()
+        pulse = 1 + 0.06 * math.sin(t * 9)  # the divine core
+        core = cairo.RadialGradient(cx, cy, 0, cx, cy, h * (0.06 + 0.4 * ease_out(min(1.0, t / 2.4))) * pulse)
+        core.add_color_stop_rgba(0, 1, 1, 1, 1)
+        core.add_color_stop_rgba(0.35, 1, 0.97, 0.7, 0.85)
+        core.add_color_stop_rgba(1, 1, 0.85, 0.4, 0)
+        cr.set_source(core)
+        cr.paint()
+        for ang, dist, speed, ph, size in sparks:  # rising sparkles (four-point stars)
+            life = (t * speed * 0.5 + ph / 6.28) % 1.0
+            r = (0.1 + dist * life) * h * 0.7
+            x, y = cx + math.cos(ang) * r, cy + math.sin(ang) * r - life * h * 0.15
+            tw = 0.5 + 0.5 * math.sin(t * 8 + ph * 5)
+            sz = size * h * (0.6 + 0.8 * tw) * grow
+            cr.set_source_rgba(1, 0.97, 0.75, (1 - life) * tw * 0.95)
+            cr.move_to(x, y - sz)
+            cr.curve_to(x + sz * 0.08, y - sz * 0.08, x + sz * 0.08, y - sz * 0.08, x + sz, y)
+            cr.curve_to(x + sz * 0.08, y + sz * 0.08, x + sz * 0.08, y + sz * 0.08, x, y + sz)
+            cr.curve_to(x - sz * 0.08, y + sz * 0.08, x - sz * 0.08, y + sz * 0.08, x - sz, y)
+            cr.curve_to(x - sz * 0.08, y - sz * 0.08, x - sz * 0.08, y - sz * 0.08, x, y - sz)
+            cr.fill()
+        for msg, t0, t1 in lines:  # lyrics, golden
+            if t0 <= t < t1 + 0.25:
+                u = min(1.0, (t - t0) / 0.3) * min(1.0, (t1 + 0.25 - t) / 0.25)
+                outlined_text(cr, msg, h * 0.075 * (0.85 + 0.15 * ease_out(min(1.0, (t - t0) / 0.4))), cx, cy + h * 0.3,
+                              fill=(1, 0.88, 0.4), alpha=max(0.0, u))
+        if t > 2.2:  # blinding white flash while the browser opens
+            peak = RICK_OPEN_AT_S + 0.1
+            a = (t - 2.2) / (peak - 2.2) if t < peak else 1 - (t - peak) / (RICK_ANIM_S - peak)
+            cr.set_source_rgba(1, 1, 1, max(0.0, min(1.0, a)))
+            cr.paint()
 
     return draw
 
@@ -600,7 +672,7 @@ class Overlay(Gtk.Window):
 class Dial:
     # dial units needed per step of each tool; one physical detent is ~8-10 units
     STEP = {SCROLL: 6, VOLUME: 8, BRIGHT: 8, ZOOM: 8, VIDEO: 8, TABS: 8, ARROWS: 8,
-            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8}
+            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8, RICK: 8}
 
     def __init__(self, args):
         self.args = args
@@ -627,7 +699,8 @@ class Dial:
         self.swallow_release = False
         self.bus = Gio.bus_get_sync(Gio.BusType.SESSION)
         self.focus_checked = -1.0
-        self.rickrolled = -RICKROLL_COOLDOWN_S
+        self.rick_busy = False
+        self.divine_win = AnimWindow()
         self.dice_win, self.tomato_win, self.chip_win = AnimWindow(), AnimWindow(), AnimWindow()
         self.dice_idx = DICE_SIDES.index(6)
         self.timer_minutes, self.timer_end, self.timer_id = 5, 0.0, 0
@@ -832,8 +905,6 @@ class Dial:
             self.show_brightness()
         elif tool == VIDEO:
             if not self.mpris("Seek", GLib.Variant("(x)", (5_000_000 * d,))):
-                if self.rickroll():
-                    return
                 for _ in range(n):
                     self.ui.tap(KEY_RIGHT if d > 0 else KEY_LEFT)
             self.show_label(L("seek", icon="⏩" if d > 0 else "⏪", n=5 * n))
@@ -860,6 +931,8 @@ class Dial:
             self.set_keylight(self.get_keylight() + d)
         elif tool == LANGUAGE:
             self.set_language((LANGS.index(_lang[0]) + d) % len(LANGS))
+        elif tool == RICK:
+            self.show_label(L("rick_hint"))
         elif tool == FIND:
             for _ in range(n):
                 self.ui.tap(KEY_F3, shift=d < 0)
@@ -882,8 +955,6 @@ class Dial:
             self.show_label("🔍 Zoom 100%")
         elif tool == VIDEO:
             if not self.mpris("PlayPause"):
-                if self.rickroll():
-                    return
                 self.ui.tap(KEY_PLAYPAUSE)
             self.show_label(L("play_pause"))
         elif tool == POWER:
@@ -904,6 +975,8 @@ class Dial:
             self.windows_click()
         elif tool == LANGUAGE:
             self.set_language(LANGS.index(_lang[0]))
+        elif tool == RICK:
+            self.rick_start()
         elif tool == KEYLIGHT:
             self.keylight_last = self.keylight_last if self.get_keylight() == 0 else self.get_keylight()
             self.set_keylight(self.keylight_last if self.get_keylight() == 0 else 0)
@@ -973,17 +1046,6 @@ class Dial:
         self.acc -= steps * self.STEP[ZOOM]
         f = self.set_magnifier(self.get_magnifier() + steps * MAG_STEP)
         self.show_label(L("screen_zoom", f=f), (f - 1) / (MAG_MAX - 1))
-
-    def rickroll(self):
-        """No video to control while a browser has the focus: open the classic one in the default browser."""
-        if not self.in_browser():
-            return False
-        now = GLib.get_monotonic_time() / 1e6
-        if now - self.rickrolled > RICKROLL_COOLDOWN_S:
-            self.rickrolled = now
-            subprocess.Popen(["xdg-open", RICKROLL_URL], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.show_label(L("no_video_browser"))
-        return True
 
     # --- system helpers ---
     def _mpris_players(self):
@@ -1087,6 +1149,58 @@ class Dial:
                 return
         o.angle += delta * -self.sign * HOUSE_DEG_PER_UNIT
         o.show_for("image", 1500)
+
+    # --- rickroll: divine animation, then the browser opens the video full screen ---
+    def rick_start(self):
+        if self.rick_busy:
+            return
+        self.rick_busy = True
+        if os.path.exists(RICK_SOUND):
+            subprocess.Popen(["paplay", RICK_SOUND], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.divine_win.play(make_divine_draw(), RICK_ANIM_S, fps=30, on_done=lambda: setattr(self, "rick_busy", False))
+        GLib.timeout_add(int(RICK_OPEN_AT_S * 1000), self.rick_open)
+
+    def rick_open(self):
+        subprocess.Popen(["xdg-open", RICKROLL_URL], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.rick_polls = 0
+        GLib.timeout_add(500, self.rick_wait_page)
+        return False
+
+    def rick_wait_page(self):
+        """Wait until the active window is the YouTube page, then make sure it plays and goes full screen."""
+        self.rick_polls += 1
+        if "youtube" in self._active_title().lower():
+            GLib.timeout_add(2500, self.rick_fullscreen)
+            return False
+        return self.rick_polls < 40  # give up after ~20 s
+
+    def rick_fullscreen(self):
+        if not self._anything_playing():
+            self.ui.tap(KEY_K)  # autoplay was blocked: start the video
+        GLib.timeout_add(500, lambda: (self.ui.tap(KEY_F), False)[1])  # YouTube's full-screen key
+        return False
+
+    def _active_title(self):
+        try:
+            root = subprocess.run(["xprop", "-root", "_NET_ACTIVE_WINDOW"], capture_output=True, text=True, timeout=0.5).stdout
+            wid = root.split()[-1]
+            if not wid.startswith("0x") or int(wid, 16) == 0:
+                return ""
+            return subprocess.run(["xprop", "-id", wid, "_NET_WM_NAME"], capture_output=True, text=True, timeout=0.5).stdout
+        except (OSError, IndexError, ValueError, subprocess.SubprocessError):
+            return ""
+
+    def _anything_playing(self):
+        for name in self._mpris_players():
+            try:
+                r = self.bus.call_sync(name, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "Get",
+                                       GLib.Variant("(ss)", ("org.mpris.MediaPlayer2.Player", "PlaybackStatus")),
+                                       None, Gio.DBusCallFlags.NONE, 500, None)
+                if r.unpack()[0] == "Playing":
+                    return True
+            except GLib.Error:
+                continue
+        return False
 
     # --- language ---
     def set_language(self, idx):

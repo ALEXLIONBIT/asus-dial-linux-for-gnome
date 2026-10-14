@@ -177,7 +177,7 @@ rm -rf ~/.local/ollama ~/.ollama
 
 ## License
 
-**All rights reserved — this is not open-source software.** The code is public on GitHub so that it can be read, but you may not copy, modify, redistribute or reuse it without the author's written permission (see [`LICENSE`](LICENSE)).
+**MIT License — open source and free.** Anyone can use, copy, modify and share it, as long as the copyright notice is kept (see [`LICENSE`](LICENSE)).
 
 Created by **ALEXLIONBIT** (human, red clothes, curly hair) together with **Claude** (an AI assistant made by Anthropic). The *About* tab of the settings app shows them saying hello.
 
@@ -356,7 +356,7 @@ rm -rf ~/.local/ollama ~/.ollama
 
 ## Licencia
 
-**Todos los derechos reservados — no es software de código abierto.** El código es público en GitHub para poder leerlo, pero no se puede copiar, modificar, redistribuir ni reutilizar sin el permiso escrito del autor (ver [`LICENSE`](LICENSE)).
+**Licencia MIT — código abierto y gratis.** Cualquiera puede usarlo, copiarlo, modificarlo y compartirlo, siempre que se conserve el aviso de copyright (ver [`LICENSE`](LICENSE)).
 
 Creado por **ALEXLIONBIT** (humano, ropa roja, pelo rizado) junto con **Claude** (un asistente de IA hecho por Anthropic). La pestaña *Información* de la app de ajustes los muestra saludándose.
 
@@ -535,6 +535,6 @@ rm -rf ~/.local/ollama ~/.ollama
 
 ## Licenza
 
-**Tutti i diritti riservati — non è software open source.** Il codice è pubblico su GitHub per poterlo leggere, ma non si può copiare, modificare, ridistribuire o riutilizzare senza il permesso scritto dell'autore (vedi [`LICENSE`](LICENSE)).
+**Licenza MIT — open source e gratis.** Chiunque può usarlo, copiarlo, modificarlo e condividerlo, purché resti l'avviso di copyright (vedi [`LICENSE`](LICENSE)).
 
 Creato da **ALEXLIONBIT** (umano, vestito di rosso, capelli ricci) insieme a **Claude** (un assistente AI creato da Anthropic). La scheda *Informazioni* dell'app di impostazioni li mostra mentre si salutano.

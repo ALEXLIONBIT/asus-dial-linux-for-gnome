@@ -11,7 +11,7 @@ them ourselves:
   * long press: opens the radial menu; rotate to pick a tool, then click to
     confirm (or hold, rotate and release)
 """
-import argparse, fcntl, glob, json, math, os, random, struct, subprocess, time
+import argparse, fcntl, glob, json, math, os, random, struct, subprocess, sys, time
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -19,6 +19,9 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("PangoCairo", "1.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango, PangoCairo
 import cairo
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import asus_dial_config as acfg  # config file, built-in mode names/icons, key names
 
 HID_ID = "0018:00000B05:00000220"
 EV_SYN, EV_KEY, EV_REL = 0, 1, 2
@@ -34,20 +37,13 @@ MENU_SIZE = 560
 HOLD_MS = 350
 PRESS_ROTATE_UNITS = 5  # total travel while pressed that opens the menu (net is noisy under pressure)
 SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE, RICK, AI = range(19)
-ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨", "🌐", "✨", "🤖"]
+ID_TO_TOOL = {i: n for n, i in enumerate(acfg.BUILTIN_IDS)}  # built-in mode id -> tool number (same order as above)
+CUSTOM_BASE = 1000  # custom modes are numbered CUSTOM_BASE + their index in the config
+ICONS, NAMES_L = acfg.ICONS, acfg.NAMES_L
 
 # --- languages: English (default), Spanish, Italian ---
-LANGS = ("en", "es", "it")
-LANG_NAMES = {"en": "English", "es": "Español", "it": "Italiano"}
-LANG_FILE = os.path.expanduser("~/.config/asus-dial.lang")
-NAMES_L = {
-    "en": ["Scroll", "Volume", "Brightness", "Zoom", "Video", "Tabs", "Arrows", "House", "Power off",
-           "Dice", "Timer", "Speed", "Light", "Windows", "Find", "Keyboard", "Language", "Rickroll", "AI"],
-    "es": ["Desplazar", "Volumen", "Brillo", "Zoom", "Vídeo", "Pestañas", "Flechas", "Casa", "Apagar",
-           "Dado", "Temporiz.", "Velocidad", "Luz", "Ventanas", "Buscar", "Teclado", "Idioma", "Rickroll", "IA"],
-    "it": ["Scorri", "Volume", "Luminosità", "Zoom", "Video", "Schede", "Frecce", "Casa", "Arresta",
-           "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera", "Lingua", "Rickroll", "AI"],
-}
+LANGS, LANG_NAMES, LANG_FILE = acfg.LANGS, acfg.LANG_NAMES, acfg.LANG_FILE
+_custom = []  # the custom modes from the config (list of dicts)
 # message key -> (English, Spanish, Italian); placeholders use str.format names
 STR = {
     "tomato_stop": ("click the dial to stop", "haz clic en la rueda para parar", "clic sulla manopola per fermare"),
@@ -106,7 +102,15 @@ def L(key, **kw):
 
 
 def tname(tool):
+    if tool >= CUSTOM_BASE:
+        return _custom[tool - CUSTOM_BASE]["name"] if tool - CUSTOM_BASE < len(_custom) else "?"
     return NAMES_L[_lang[0]][tool]
+
+
+def ticon(tool):
+    if tool >= CUSTOM_BASE:
+        return _custom[tool - CUSTOM_BASE]["icon"] if tool - CUSTOM_BASE < len(_custom) else "?"
+    return ICONS[tool]
 
 
 def load_lang():
@@ -125,7 +129,6 @@ def save_lang():
             f.write(_lang[0])
     except OSError:
         pass
-MENU_ORDER = [SCROLL, VOLUME, BRIGHT, KEYLIGHT, NIGHT, ZOOM, VIDEO, SPEED, TIMER, AI, TABS, FIND, WINDOWS, ARROWS, DICE, HOUSE, RICK, LANGUAGE, POWER]
 HOUSE_IMAGE = os.path.expanduser("~/Immagini/casa.png")  # any picture you like
 HOUSE_WIDTH = 640  # px on screen
 HOUSE_DEG_PER_UNIT = 2.0  # the picture tilts with the dial
@@ -134,7 +137,7 @@ POWER_COUNTDOWN_S = 5
 POWER_GRACE_S = 0.8
 POWER_CMD = ["systemctl", "poweroff"]
 STATE_FILE = os.path.expanduser("~/.config/asus-dial.tool")
-BROWSER_ONLY = {TABS, FIND}  # tools shown/usable only while a browser has the focus
+BROWSER_ONLY = {ID_TO_TOOL[i] for i in acfg.BROWSER_ONLY_IDS}  # tools shown/usable only while a browser has the focus
 BROWSER_CLASSES = ("firefox", "chrome", "chromium", "brave", "vivaldi", "opera", "msedge", "microsoft-edge",
                    "librewolf", "epiphany", "zen", "floorp", "waterfox", "tor browser")
 FOCUS_CACHE_S = 0.3
@@ -183,7 +186,7 @@ class Uinput:
         self.fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
         for ev in (EV_KEY, EV_REL):
             fcntl.ioctl(self.fd, UI_SET_EVBIT, ev)
-        for k in KEYS:
+        for k in sorted(set(KEYS) | set(acfg.ALL_KEYCODES)):
             fcntl.ioctl(self.fd, UI_SET_KEYBIT, k)
         for r in (REL_X, REL_Y, REL_WHEEL, REL_WHEEL_HI_RES):
             fcntl.ioctl(self.fd, UI_SET_RELBIT, r)
@@ -193,6 +196,15 @@ class Uinput:
     def emit(self, *events):
         data = b"".join(struct.pack("<qqHHi", 0, 0, t, c, v) for t, c, v in events)
         os.write(self.fd, data + struct.pack("<qqHHi", 0, 0, EV_SYN, 0, 0))
+
+    def combo(self, mods, key):
+        """Press the modifier codes, tap key, release the modifiers."""
+        for m in mods:
+            self.emit((EV_KEY, m, 1))
+        self.emit((EV_KEY, key, 1))
+        self.emit((EV_KEY, key, 0))
+        for m in reversed(mods):
+            self.emit((EV_KEY, m, 0))
 
     def tap(self, key, ctrl=False, shift=False):
         mods = [m for m, on in ((KEY_LEFTCTRL, ctrl), (KEY_LEFTSHIFT, shift)) if on]
@@ -706,6 +718,7 @@ class Overlay(Gtk.Window):
         self.kind = None  # "menu" | "osd"
         self.sel = 0  # index into items
         self.items = list(range(len(ICONS)))  # tool ids shown in the menu
+        self.msize = MENU_SIZE
         self.label = ""
         self.value = None  # 0..1 or None
         self.hide_id = 0
@@ -715,7 +728,7 @@ class Overlay(Gtk.Window):
     def show_for(self, kind, timeout_ms):
         self.kind = kind
         if kind == "menu":
-            w = h = MENU_SIZE
+            w = h = self.msize
         elif kind == "image":
             w = h = int(math.hypot(self.image.get_width(), self.image.get_height())) + 20
         else:
@@ -770,8 +783,9 @@ class Overlay(Gtk.Window):
         cr.paint()
 
     def draw_menu(self, cr):
-        cx = cy = MENU_SIZE / 2
-        r_out, r_in, r_txt = cx - 10, 105, 192
+        cx = cy = self.msize / 2
+        r_out, r_in = cx - 10, 105
+        r_txt = r_in + 0.53 * (r_out - r_in)
         n = len(self.items)
         cr.set_source_rgba(0.08, 0.08, 0.1, 0.88)
         cr.arc(cx, cy, cx - 5, 0, 2 * math.pi)
@@ -791,7 +805,7 @@ class Overlay(Gtk.Window):
             am = (a0 + a1) / 2
             tx, ty = cx + r_txt * math.cos(am), cy + r_txt * math.sin(am)
             cr.set_source_rgba(1, 1, 1, 1)
-            text(cr, ICONS[self.items[i]], 20, tx, ty - 11)
+            text(cr, ticon(self.items[i]), 20, tx, ty - 11)
             text(cr, tname(self.items[i]), 9, tx, ty + 17)
         cr.set_source_rgba(1, 1, 1, 0.9)
         text(cr, tname(self.items[self.sel]), 13, cx, cy)
@@ -829,6 +843,10 @@ class Dial:
         self.ui = Uinput()
         self.overlay = Overlay()
         self.overlay.on_menu_timeout = lambda: setattr(self, "menu_open", False)
+        self.cfg, self.cfg_mtime, self.lang_mtime = acfg.load(), acfg.config_mtime(), self._mtime(LANG_FILE)
+        self.menu_tools = []
+        self.cur_custom_id = None
+        self.apply_config()
         self.tool = self.load_tool()
         self.menu_open = False
         self.acc = 0.0
@@ -867,18 +885,81 @@ class Dial:
         self.watch_id = 0
         self.connect_hid()
 
+    # --- config file (written by asus-dial-manager; reloaded by itself when it changes) ---
+    @staticmethod
+    def _mtime(path):
+        try:
+            return os.stat(path).st_mtime_ns
+        except OSError:
+            return 0
+
+    def apply_config(self):
+        _custom[:] = self.cfg["custom"]
+        ids = [c["id"] for c in _custom]
+        tools = []
+        for mode_id in acfg.mode_order(self.cfg):
+            if mode_id.startswith("custom:"):
+                if mode_id[7:] in ids:
+                    tools.append(CUSTOM_BASE + ids.index(mode_id[7:]))
+            else:
+                tools.append(ID_TO_TOOL[mode_id])
+        self.menu_tools = tools or [SCROLL]
+        if getattr(self, "tool", SCROLL) >= CUSTOM_BASE:  # the custom list may have changed: find the mode again
+            cid = self.cur_custom_id
+            self.tool = CUSTOM_BASE + ids.index(cid) if cid in ids else SCROLL
+
+    def check_config(self):
+        mt = acfg.config_mtime()
+        if mt != self.cfg_mtime:
+            self.cfg_mtime = mt
+            self.cfg = acfg.load()
+            self.apply_config()
+        lm = self._mtime(LANG_FILE)
+        if lm != self.lang_mtime:
+            self.lang_mtime = lm
+            load_lang()
+        return True
+
+    def set_tool(self, tool):
+        self.tool = tool
+        self.cur_custom_id = _custom[tool - CUSTOM_BASE]["id"] if CUSTOM_BASE <= tool < CUSTOM_BASE + len(_custom) else None
+
+    def run_custom(self, tool, action, n):
+        """Send the key sequence of a custom mode (click / cw / ccw), n times."""
+        if tool - CUSTOM_BASE >= len(_custom):
+            return
+        mode = _custom[tool - CUSTOM_BASE]
+        try:
+            seq = acfg.parse_sequence(mode[action]) * n
+        except ValueError:
+            self.show_label(f"{mode['icon']} {mode['name']}  ⚠")
+            return
+        for i, (mods, key) in enumerate(seq):
+            GLib.timeout_add(25 * i, lambda m=mods, k=key: (self.ui.combo(m, k), False)[1])
+        self.show_label(f"{mode['icon']} {mode['name']}")
+
     # --- persistence ---
     def load_tool(self):
         try:
-            return int(open(STATE_FILE).read()) % len(ICONS)
-        except (OSError, ValueError):
+            raw = open(STATE_FILE).read().strip()
+        except OSError:
+            return SCROLL
+        if raw.startswith("c:"):
+            ids = [c["id"] for c in _custom]
+            if raw[2:] in ids:
+                self.cur_custom_id = raw[2:]
+                return CUSTOM_BASE + ids.index(raw[2:])
+            return SCROLL
+        try:
+            return int(raw) % len(ICONS)
+        except ValueError:
             return SCROLL
 
     def save_tool(self):
         try:
             os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
             with open(STATE_FILE, "w") as f:
-                f.write(str(self.tool))
+                f.write(f"c:{self.cur_custom_id}" if self.tool >= CUSTOM_BASE else str(self.tool))
         except OSError:
             pass
 
@@ -966,6 +1047,7 @@ class Dial:
         self.menu_open = True
         self.acc = 0.0
         self.overlay.items = self.available_tools()
+        self.overlay.msize = MENU_SIZE + max(0, len(self.overlay.items) - 19) * 20
         tool = self.effective_tool()
         self.overlay.sel = self.overlay.items.index(tool) if tool in self.overlay.items else 0
         self.overlay.show_for("menu", MENU_TIMEOUT_MS)
@@ -973,11 +1055,11 @@ class Dial:
     def confirm_menu(self):
         self.menu_open = False
         self.acc = 0.0
-        self.tool = self.overlay.items[self.overlay.sel]
+        self.set_tool(self.overlay.items[self.overlay.sel])
         self.power_progress = 0.0
         self.save_tool()
         self.overlay.close_overlay()
-        self.show_label(f"{ICONS[self.tool]} {tname(self.tool)}")
+        self.show_label(f"{ticon(self.tool)} {tname(self.tool)}")
 
     # --- rotation ---
     def rotate(self, delta):
@@ -1021,7 +1103,7 @@ class Dial:
             self.rotate_power(delta, now)
             return
         self.acc += delta
-        step = self.STEP[tool]
+        step = self.STEP.get(tool, 8)
         steps = int(self.acc / step)
         if steps:
             self.acc -= steps * step
@@ -1045,11 +1127,13 @@ class Dial:
         self.ui.emit(*events)
         if zoom:
             self.ui.emit((EV_KEY, KEY_LEFTCTRL, 0))
-        self.show_label(f"{ICONS[tool]} {tname(tool)}")
+        self.show_label(f"{ticon(tool)} {tname(tool)}")
 
     def step_tool(self, tool, d):
         n = abs(d)
-        if tool == VOLUME:
+        if tool >= CUSTOM_BASE:
+            self.run_custom(tool, "cw" if d > 0 else "ccw", n)
+        elif tool == VOLUME:
             subprocess.run(["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", f"{2 * n}%{'+' if d > 0 else '-'}"])
             self.show_volume()
         elif tool == BRIGHT:
@@ -1097,7 +1181,9 @@ class Dial:
     # --- short click action per tool ---
     def click(self):
         tool = self.effective_tool()
-        if tool == SCROLL:
+        if tool >= CUSTOM_BASE:
+            self.run_custom(tool, "click", 1)
+        elif tool == SCROLL:
             self.ui.tap(BTN_MIDDLE)
             self.show_label(L("middle_click"))
         elif tool == VOLUME:
@@ -1142,7 +1228,7 @@ class Dial:
             self.ui.tap(KEY_F, ctrl=True)
             self.show_label(L("find_open"))
         else:
-            self.show_label(f"{ICONS[tool]} {tname(tool)}  {L('hold_hint')}")
+            self.show_label(f"{ticon(tool)} {tname(tool)}  {L('hold_hint')}")
 
     # --- context: which tools make sense right now ---
     def in_browser(self):
@@ -1166,7 +1252,7 @@ class Dial:
 
     def available_tools(self):
         browser = self.in_browser()
-        return [t for t in MENU_ORDER if browser or t not in BROWSER_ONLY]
+        return [t for t in self.menu_tools if browser or t not in BROWSER_ONLY] or [SCROLL]
 
     def effective_tool(self):
         """The chosen tool, or Scroll while a browser-only tool has no browser to act on (choice is kept)."""
@@ -1648,7 +1734,8 @@ def main():
     p.add_argument("--invert", action="store_true", help="invert rotation direction")
     args = p.parse_args()
     load_lang()
-    Dial(args)
+    dial = Dial(args)
+    GLib.timeout_add_seconds(1, dial.check_config)
     Gtk.main()
 
 

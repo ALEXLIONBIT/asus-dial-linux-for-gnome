@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ASUS Dial Manager
+Comment=Customize the ASUS Dial: modes, custom key modes, language
+Exec=asus-dial-manager
+Icon=preferences-system
+Terminal=false
+Categories=Settings;HardwareSettings;
+StartupWMClass=asus-dial-manager

@@ -89,8 +89,11 @@ Then **log out and back in** (or reboot) so the `input` group takes effect.
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai ~/.local/bin/
-chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager
+# launcher for the settings app (shows up in the applications menu)
+mkdir -p ~/.local/share/applications
+sed "s#^Exec=.*#Exec=$HOME/.local/bin/asus-dial-manager#" asus-dial-manager.desktop > ~/.local/share/applications/asus-dial-manager.desktop
 ```
 
 To try it right away, from a terminal: `~/.local/bin/asus-dial`.
@@ -112,6 +115,16 @@ journalctl --user -u asus-dial -f
 ```
 
 After every change to the file: `systemctl --user restart asus-dial`.
+
+## Settings app (`asus-dial-manager`)
+
+Open **ASUS Dial Manager** from the applications menu (or run `asus-dial-manager`). Changes are saved to `~/.config/asus-dial/config.json` and the dial picks them up by itself within a second — no restart needed.
+
+- **Modes tab:** tick or untick any built-in mode to show or hide it in the circular menu, change the order with *Move up / Move down*, and *Restore defaults* to bring everything back (your custom modes stay).
+- **Custom modes:** *Add custom mode…* creates a mode with a **name**, an **icon** (any emoji) and up to three actions made of keys: **click**, **rotate right** and **rotate left**. Examples: `p` (types the P key), `ctrl+shift+t`, or a series like `ctrl+c ctrl+v`. Use **Record** and press the keys on your keyboard to fill the field for you. Custom modes appear in the circular menu with the others (which grows if you have many).
+- **General tab:** language of the dial and of the app, and the welcome-message switch (the welcome message itself comes in a later update).
+
+Key names: letters `a`–`z`, digits `0`–`9`, `f1`–`f12`, `enter`, `esc`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `apostrophe`, `bracketleft`, `bracketright`, `backslash`, `grave`, `capslock`, `print`, `kpplus` (also `plus`), `kpminus`, `volumeup`, `volumedown`, `mute`, `playpause`, `next`, `previous`. Modifiers: `ctrl`, `shift`, `alt`, `super`. Keys are physical key positions (US-layout names): letters follow your layout, and `plus` is the keypad `+`, which works for browser zoom (`ctrl+plus`).
 
 ## Options
 
@@ -140,7 +153,9 @@ Everything is at the top of the `asus-dial` file: mode names and icons (`NAMES`,
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py
+rm -f ~/.local/share/applications/asus-dial-manager.desktop
+rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 # optional, to also remove Ollama and the downloaded models:
@@ -244,8 +259,11 @@ Después **cierra la sesión y vuelve a entrar** (o reinicia) para que se apliqu
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai ~/.local/bin/
-chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager
+# launcher for the settings app (shows up in the applications menu)
+mkdir -p ~/.local/share/applications
+sed "s#^Exec=.*#Exec=$HOME/.local/bin/asus-dial-manager#" asus-dial-manager.desktop > ~/.local/share/applications/asus-dial-manager.desktop
 ```
 
 Para probarlo enseguida, desde una terminal: `~/.local/bin/asus-dial`.
@@ -267,6 +285,16 @@ journalctl --user -u asus-dial -f
 ```
 
 Tras cada cambio en el archivo: `systemctl --user restart asus-dial`.
+
+## App de ajustes (`asus-dial-manager`)
+
+Abre **ASUS Dial Manager** desde el menú de aplicaciones (o ejecuta `asus-dial-manager`). Los cambios se guardan en `~/.config/asus-dial/config.json` y la rueda los recoge sola en un segundo, sin reiniciar.
+
+- **Pestaña Modos:** marca o desmarca cualquier modo integrado para mostrarlo u ocultarlo en el menú circular, cambia el orden con *Subir / Bajar* y usa *Restaurar valores* para recuperar todo (tus modos personalizados se conservan).
+- **Modos personalizados:** *Añadir modo personalizado…* crea un modo con un **nombre**, un **icono** (cualquier emoji) y hasta tres acciones hechas de teclas: **clic**, **girar a la derecha** y **girar a la izquierda**. Ejemplos: `p` (pulsa la tecla P), `ctrl+shift+t` o una serie como `ctrl+c ctrl+v`. Con **Grabar** pulsas las teclas en tu teclado y rellena el campo por ti. Los modos personalizados aparecen en el menú circular junto a los demás (que se agranda si tienes muchos).
+- **Pestaña General:** idioma de la rueda y de la app, y el interruptor del mensaje de bienvenida (el mensaje en sí llega en una actualización posterior).
+
+Nombres de teclas: letras `a`–`z`, dígitos `0`–`9`, `f1`–`f12`, `enter`, `esc`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `apostrophe`, `bracketleft`, `bracketright`, `backslash`, `grave`, `capslock`, `print`, `kpplus` (también `plus`), `kpminus`, `volumeup`, `volumedown`, `mute`, `playpause`, `next`, `previous`. Modificadores: `ctrl`, `shift`, `alt`, `super`. Las teclas son posiciones físicas (nombres del teclado US): las letras siguen tu distribución y `plus` es el `+` del teclado numérico, que sirve para el zoom del navegador (`ctrl+plus`).
 
 ## Opciones
 
@@ -295,7 +323,9 @@ Todo está al principio del archivo `asus-dial`: nombres e iconos de los modos (
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py
+rm -f ~/.local/share/applications/asus-dial-manager.desktop
+rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 # opcional, para quitar también Ollama y los modelos descargados:
@@ -399,8 +429,11 @@ Poi **esci e rientra dalla sessione** (o riavvia) perché il gruppo `input` veng
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai ~/.local/bin/
-chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager
+# launcher for the settings app (shows up in the applications menu)
+mkdir -p ~/.local/share/applications
+sed "s#^Exec=.*#Exec=$HOME/.local/bin/asus-dial-manager#" asus-dial-manager.desktop > ~/.local/share/applications/asus-dial-manager.desktop
 ```
 
 Per provarlo subito, da terminale: `~/.local/bin/asus-dial`.
@@ -422,6 +455,16 @@ journalctl --user -u asus-dial -f
 ```
 
 Dopo ogni modifica al file: `systemctl --user restart asus-dial`.
+
+## App di gestione (`asus-dial-manager`)
+
+Apri **ASUS Dial Manager** dal menu delle applicazioni (oppure esegui `asus-dial-manager`). Le modifiche vengono salvate in `~/.config/asus-dial/config.json` e la manopola le legge da sola entro un secondo, senza riavviare.
+
+- **Scheda Modalità:** spunta o togli la spunta a qualsiasi modalità predefinita per mostrarla o nasconderla nel menu circolare, cambia l'ordine con *Su / Giù* e usa *Ripristina predefiniti* per rimettere tutto (le tue modalità personalizzate restano).
+- **Modalità personalizzate:** *Aggiungi modalità personalizzata…* crea una modalità con un **nome**, un'**icona** (qualsiasi emoji) e fino a tre azioni fatte di tasti: **clic**, **ruota a destra** e **ruota a sinistra**. Esempi: `p` (preme il tasto P), `ctrl+shift+t`, oppure una serie come `ctrl+c ctrl+v`. Con **Registra** premi i tasti sulla tastiera e il campo si compila da solo. Le modalità personalizzate compaiono nel menu circolare insieme alle altre (che si allarga se sono tante).
+- **Scheda Generale:** lingua della manopola e dell'app, e l'interruttore del messaggio di benvenuto (il messaggio vero e proprio arriva in un aggiornamento successivo).
+
+Nomi dei tasti: lettere `a`–`z`, cifre `0`–`9`, `f1`–`f12`, `enter`, `esc`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `apostrophe`, `bracketleft`, `bracketright`, `backslash`, `grave`, `capslock`, `print`, `kpplus` (anche `plus`), `kpminus`, `volumeup`, `volumedown`, `mute`, `playpause`, `next`, `previous`. Modificatori: `ctrl`, `shift`, `alt`, `super`. I tasti sono posizioni fisiche (nomi della tastiera US): le lettere seguono il tuo layout e `plus` è il `+` del tastierino numerico, che va bene per lo zoom del browser (`ctrl+plus`).
 
 ## Opzioni
 
@@ -450,7 +493,9 @@ Tutto è in cima al file `asus-dial`: nomi e icone delle modalità (`NAMES`, `IC
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py
+rm -f ~/.local/share/applications/asus-dial-manager.desktop
+rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
 sudo rm /etc/udev/rules.d/99-asus-dial.rules
 # facoltativo, per togliere anche Ollama e i modelli scaricati:

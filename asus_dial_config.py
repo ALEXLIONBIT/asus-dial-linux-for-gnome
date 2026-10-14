@@ -31,6 +31,58 @@ DEFAULT_ORDER = ["scroll", "volume", "brightness", "keylight", "night", "zoom", 
                  "tabs", "find", "windows", "arrows", "dice", "house", "rick", "language", "power"]
 BROWSER_ONLY_IDS = ("tabs", "find")
 
+# Look of the radial menu and of the on-screen messages (see asus_dial_theme.py for the drawing)
+DEFAULT_THEME = {
+    "bg_type": "color",        # color | image | rainbow | halloween
+    "bg_color": "#141419",
+    "bg_opacity": 0.88,        # 0..1
+    "bg_image": "",            # cropped PNG written by the manager
+    "image_dim": 0.35,         # 0..1, darkens the image so the text stays readable
+    "blur": 0,                 # 0..40: frosted glass (blurs a snapshot of what is behind the menu)
+    "accent": "#4080ff",       # selected slice and bars
+    "text": "#ffffff",
+    "glow": False,
+    "glow_color": "#4080ff",
+    "glow_strength": 0.8,      # 0..1
+    "reflection": 0.0,         # 0..1: glossy highlight
+    "shadow": False,
+    "shadow_strength": 0.6,    # 0..1
+    "sparkles": False,
+    "speed": 0.5,              # animation speed of rainbow / sparkles / halloween
+}
+THEME_PRESETS = {
+    "default": {},
+    "glass": {"bg_type": "color", "bg_color": "#ffffff", "bg_opacity": 0.16, "blur": 18, "accent": "#7ab8ff", "text": "#ffffff",
+              "reflection": 0.55, "shadow": True, "shadow_strength": 0.5, "glow": False, "sparkles": False},
+    "neon": {"bg_type": "color", "bg_color": "#06060f", "bg_opacity": 0.92, "accent": "#ff2bd6", "text": "#e8fbff", "glow": True,
+             "glow_color": "#ff2bd6", "glow_strength": 1.0, "reflection": 0.12, "shadow": True, "shadow_strength": 0.5, "sparkles": False},
+    "rainbow": {"bg_type": "rainbow", "bg_opacity": 0.92, "accent": "#101018", "text": "#ffffff", "glow": True, "glow_color": "#ffffff",
+                "glow_strength": 0.6, "reflection": 0.35, "shadow": True, "shadow_strength": 0.5, "sparkles": True},
+    "sunset": {"bg_type": "color", "bg_color": "#2a0f2e", "bg_opacity": 0.92, "accent": "#ff7a45", "text": "#fff1e6", "glow": True,
+               "glow_color": "#ff7a45", "glow_strength": 0.6, "reflection": 0.2, "shadow": True, "shadow_strength": 0.5, "sparkles": False},
+    "paper": {"bg_type": "color", "bg_color": "#f4efe6", "bg_opacity": 0.96, "accent": "#3b82f6", "text": "#2b2b2b", "glow": False,
+              "reflection": 0.3, "shadow": True, "shadow_strength": 0.45, "sparkles": False},
+    "halloween": {"bg_type": "halloween", "bg_opacity": 0.95, "accent": "#ff7a00", "text": "#fff3e0", "glow": True, "glow_color": "#ff7a00",
+                  "glow_strength": 0.9, "reflection": 0.0, "shadow": True, "shadow_strength": 0.6, "sparkles": False},
+}
+PRESET_NAMES = {
+    "default": ("Default", "Predeterminado", "Predefinito"), "glass": ("Glass", "Cristal", "Vetro"),
+    "neon": ("Neon", "Neón", "Neon"), "rainbow": ("Rainbow ✨", "Arcoíris ✨", "Arcobaleno ✨"),
+    "sunset": ("Sunset", "Atardecer", "Tramonto"), "paper": ("Paper (light)", "Papel (claro)", "Carta (chiaro)"),
+    "halloween": ("Halloween 🎃", "Halloween 🎃", "Halloween 🎃"),
+}
+
+
+def theme_of(cfg):
+    """The theme dict with every key present (and values of the right kind)."""
+    th = dict(DEFAULT_THEME)
+    user = cfg.get("theme") if isinstance(cfg.get("theme"), dict) else {}
+    for k, v in user.items():
+        if k in th and isinstance(v, type(th[k])) or (k in th and isinstance(th[k], float) and isinstance(v, int) and not isinstance(v, bool)):
+            th[k] = v
+    return th
+
+
 DEFAULT_CONFIG = {
     "version": 1,
     "modes": {"disabled": [], "order": list(DEFAULT_ORDER)},

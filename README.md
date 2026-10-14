@@ -62,7 +62,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 
 ```bash
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
-                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd
+                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd python3-pil
 ```
 
 - `wireplumber` (the `wpctl` command): volume.
@@ -70,6 +70,7 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
 - `pulseaudio-utils` (the `paplay` command): timer sound.
 - `xdg-utils`: opens the default browser.
 - `gnome-terminal`, `curl`, `zstd`: for the AI mode (terminal, downloads, unpacking Ollama).
+- `python3-pil` (Pillow): the frosted-glass blur of the themes (optional: without it the menu is just translucent).
 
 ### 2. Permissions (once)
 
@@ -89,7 +90,7 @@ Then **log out and back in** (or reboot) so the `input` group takes effect.
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py ~/.local/bin/
+cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py asus_dial_theme.py ~/.local/bin/
 chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager
 # launcher for the settings app (shows up in the applications menu)
 mkdir -p ~/.local/share/applications
@@ -122,6 +123,7 @@ Open **ASUS Dial Manager** from the applications menu (or run `asus-dial-manager
 
 - **Modes tab:** tick or untick any built-in mode to show or hide it in the circular menu, change the order with *Move up / Move down*, and *Restore defaults* to bring everything back (your custom modes stay).
 - **Custom modes:** *Add custom mode…* creates a mode with a **name**, an **icon** (any emoji) and up to three actions made of keys: **click**, **rotate right** and **rotate left**. Examples: `p` (types the P key), `ctrl+shift+t`, or a series like `ctrl+c ctrl+v`. Use **Record** and press the keys on your keyboard to fill the field for you. Custom modes appear in the circular menu with the others (which grows if you have many).
+- **Appearance tab:** how the circular menu and the on-screen messages look, with a live preview drawn by the same code as the dial. Pick a **preset** (Default, Glass, Neon, Rainbow ✨, Sunset, Paper, Halloween 🎃) and tweak anything: **background** (plain color with opacity, a **cropped image** of yours, a spinning **rainbow** with sparkles, or the **Halloween 🎃** scene with ghosts, tombstones, a dancing skeleton, pumpkins, bats, a spider and cobwebs), **blur** (frosted glass: a blurred snapshot of what is behind the menu, taken when it opens), colors of the selected slice and of the text, **glow**, **glossy reflection**, **shadow** and **sparkles**.
 - **General tab:** language of the dial and of the app, and the welcome-message switch (the welcome message itself comes in a later update).
 
 Key names: letters `a`–`z`, digits `0`–`9`, `f1`–`f12`, `enter`, `esc`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `apostrophe`, `bracketleft`, `bracketright`, `backslash`, `grave`, `capslock`, `print`, `kpplus` (also `plus`), `kpminus`, `volumeup`, `volumedown`, `mute`, `playpause`, `next`, `previous`. Modifiers: `ctrl`, `shift`, `alt`, `super`. Keys are physical key positions (US-layout names): letters follow your layout, and `plus` is the keypad `+`, which works for browser zoom (`ctrl+plus`).
@@ -153,7 +155,7 @@ Everything is at the top of the `asus-dial` file: mode names and icons (`NAMES`,
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py
 rm -f ~/.local/share/applications/asus-dial-manager.desktop
 rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
@@ -232,7 +234,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 
 ```bash
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
-                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd
+                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd python3-pil
 ```
 
 - `wireplumber` (comando `wpctl`): volumen.
@@ -240,6 +242,7 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
 - `pulseaudio-utils` (comando `paplay`): sonido del temporizador.
 - `xdg-utils`: abre el navegador predeterminado.
 - `gnome-terminal`, `curl`, `zstd`: para el modo IA (terminal, descargas, descomprimir Ollama).
+- `python3-pil` (Pillow): el desenfoque de cristal esmerilado de los temas (opcional: sin él el menú es solo translúcido).
 
 ### 2. Permisos (una sola vez)
 
@@ -259,7 +262,7 @@ Después **cierra la sesión y vuelve a entrar** (o reinicia) para que se apliqu
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py ~/.local/bin/
+cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py asus_dial_theme.py ~/.local/bin/
 chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager
 # launcher for the settings app (shows up in the applications menu)
 mkdir -p ~/.local/share/applications
@@ -292,6 +295,7 @@ Abre **ASUS Dial Manager** desde el menú de aplicaciones (o ejecuta `asus-dial-
 
 - **Pestaña Modos:** marca o desmarca cualquier modo integrado para mostrarlo u ocultarlo en el menú circular, cambia el orden con *Subir / Bajar* y usa *Restaurar valores* para recuperar todo (tus modos personalizados se conservan).
 - **Modos personalizados:** *Añadir modo personalizado…* crea un modo con un **nombre**, un **icono** (cualquier emoji) y hasta tres acciones hechas de teclas: **clic**, **girar a la derecha** y **girar a la izquierda**. Ejemplos: `p` (pulsa la tecla P), `ctrl+shift+t` o una serie como `ctrl+c ctrl+v`. Con **Grabar** pulsas las teclas en tu teclado y rellena el campo por ti. Los modos personalizados aparecen en el menú circular junto a los demás (que se agranda si tienes muchos).
+- **Pestaña Aspecto:** cómo se ven el menú circular y los mensajes en pantalla, con una vista previa en vivo dibujada por el mismo código que la rueda. Elige un **preajuste** (Predeterminado, Cristal, Neón, Arcoíris ✨, Atardecer, Papel, Halloween 🎃) y ajusta lo que quieras: **fondo** (color liso con opacidad, una **imagen recortada** tuya, un **arcoíris** que gira con destellos o la escena de **Halloween 🎃** con fantasmas, tumbas, un esqueleto bailando, calabazas, murciélagos, una araña y telarañas), **desenfoque** (cristal esmerilado: una captura desenfocada de lo que hay detrás del menú, tomada al abrirlo), colores de la porción elegida y del texto, **luminiscencia**, **reflejo brillante**, **sombra** y **destellos**.
 - **Pestaña General:** idioma de la rueda y de la app, y el interruptor del mensaje de bienvenida (el mensaje en sí llega en una actualización posterior).
 
 Nombres de teclas: letras `a`–`z`, dígitos `0`–`9`, `f1`–`f12`, `enter`, `esc`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `apostrophe`, `bracketleft`, `bracketright`, `backslash`, `grave`, `capslock`, `print`, `kpplus` (también `plus`), `kpminus`, `volumeup`, `volumedown`, `mute`, `playpause`, `next`, `previous`. Modificadores: `ctrl`, `shift`, `alt`, `super`. Las teclas son posiciones físicas (nombres del teclado US): las letras siguen tu distribución y `plus` es el `+` del teclado numérico, que sirve para el zoom del navegador (`ctrl+plus`).
@@ -323,7 +327,7 @@ Todo está al principio del archivo `asus-dial`: nombres e iconos de los modos (
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py
 rm -f ~/.local/share/applications/asus-dial-manager.desktop
 rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
@@ -402,7 +406,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 
 ```bash
 sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
-                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd
+                 wireplumber x11-utils pulseaudio-utils xdg-utils gnome-terminal curl zstd python3-pil
 ```
 
 - `wireplumber` (comando `wpctl`): volume.
@@ -410,6 +414,7 @@ sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-pango-1.0 \
 - `pulseaudio-utils` (comando `paplay`): suono del timer.
 - `xdg-utils`: apre il browser predefinito.
 - `gnome-terminal`, `curl`, `zstd`: per la modalità AI (terminale, download, estrazione di Ollama).
+- `python3-pil` (Pillow): la sfocatura a vetro smerigliato dei temi (facoltativo: senza, il menu è solo semitrasparente).
 
 ### 2. Permessi (una volta sola)
 
@@ -429,7 +434,7 @@ Poi **esci e rientra dalla sessione** (o riavvia) perché il gruppo `input` veng
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py ~/.local/bin/
+cp asus-dial asus-dial-ai asus-dial-manager asus_dial_config.py asus_dial_theme.py ~/.local/bin/
 chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager
 # launcher for the settings app (shows up in the applications menu)
 mkdir -p ~/.local/share/applications
@@ -462,6 +467,7 @@ Apri **ASUS Dial Manager** dal menu delle applicazioni (oppure esegui `asus-dial
 
 - **Scheda Modalità:** spunta o togli la spunta a qualsiasi modalità predefinita per mostrarla o nasconderla nel menu circolare, cambia l'ordine con *Su / Giù* e usa *Ripristina predefiniti* per rimettere tutto (le tue modalità personalizzate restano).
 - **Modalità personalizzate:** *Aggiungi modalità personalizzata…* crea una modalità con un **nome**, un'**icona** (qualsiasi emoji) e fino a tre azioni fatte di tasti: **clic**, **ruota a destra** e **ruota a sinistra**. Esempi: `p` (preme il tasto P), `ctrl+shift+t`, oppure una serie come `ctrl+c ctrl+v`. Con **Registra** premi i tasti sulla tastiera e il campo si compila da solo. Le modalità personalizzate compaiono nel menu circolare insieme alle altre (che si allarga se sono tante).
+- **Scheda Aspetto:** come appaiono il menu circolare e i messaggi a schermo, con un'anteprima in diretta disegnata dallo stesso codice della manopola. Scegli un **preset** (Predefinito, Vetro, Neon, Arcobaleno ✨, Tramonto, Carta, Halloween 🎃) e regola quello che vuoi: **sfondo** (colore pieno con opacità, una tua **immagine ritagliata**, un **arcobaleno** che gira con scintille oppure la scena di **Halloween 🎃** con fantasmi, tombe, uno scheletro che balla, zucche, pipistrelli, un ragno e ragnatele), **sfocatura** (vetro smerigliato: una foto sfocata di ciò che c'è dietro il menu, scattata quando si apre), colori della fetta selezionata e del testo, **luminescenza**, **riflesso lucido**, **ombra** e **scintille**.
 - **Scheda Generale:** lingua della manopola e dell'app, e l'interruttore del messaggio di benvenuto (il messaggio vero e proprio arriva in un aggiornamento successivo).
 
 Nomi dei tasti: lettere `a`–`z`, cifre `0`–`9`, `f1`–`f12`, `enter`, `esc`, `tab`, `space`, `backspace`, `delete`, `insert`, `home`, `end`, `pageup`, `pagedown`, `up`, `down`, `left`, `right`, `minus`, `equal`, `comma`, `period`, `slash`, `semicolon`, `apostrophe`, `bracketleft`, `bracketright`, `backslash`, `grave`, `capslock`, `print`, `kpplus` (anche `plus`), `kpminus`, `volumeup`, `volumedown`, `mute`, `playpause`, `next`, `previous`. Modificatori: `ctrl`, `shift`, `alt`, `super`. I tasti sono posizioni fisiche (nomi della tastiera US): le lettere seguono il tuo layout e `plus` è il `+` del tastierino numerico, che va bene per lo zoom del browser (`ctrl+plus`).
@@ -493,7 +499,7 @@ Tutto è in cima al file `asus-dial`: nomi e icone delle modalità (`NAMES`, `IC
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py
 rm -f ~/.local/share/applications/asus-dial-manager.desktop
 rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai

@@ -22,6 +22,7 @@ import cairo
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import asus_dial_config as acfg  # config file, built-in mode names/icons, key names
+import asus_dial_theme as ath  # how the menu and the messages are drawn (themes)
 
 HID_ID = "0018:00000B05:00000220"
 EV_SYN, EV_KEY, EV_REL = 0, 1, 2
@@ -724,27 +725,51 @@ class Overlay(Gtk.Window):
         self.hide_id = 0
         self.image = None  # GdkPixbuf shown by kind == "image"
         self.angle = 0.0
+        self.theme = acfg.theme_of({})
+        self.backdrop = None  # blurred snapshot of the screen behind the window (frosted-glass theme)
+        self.anim_id = 0
+        self.t0 = 0.0
 
     def show_for(self, kind, timeout_ms):
+        was_visible = self.get_visible()
         self.kind = kind
+        th = self.theme
         if kind == "menu":
-            w = h = self.msize
+            pad = ath.menu_pad(th)
+            w = h = self.msize + 2 * pad
         elif kind == "image":
             w = h = int(math.hypot(self.image.get_width(), self.image.get_height())) + 20
         else:
-            w, h = 360, 110
+            pad = ath.osd_pad(th)
+            w, h = ath.OSD_W + 2 * pad, ath.OSD_H + 2 * pad
         self.resize(w, h)
         display = self.get_screen().get_display()
         mon = display.get_primary_monitor() or display.get_monitor(0)
         g = mon.get_geometry()
         x = g.x + (g.width - w) // 2
-        y = g.y + (g.height - h) // 2 if kind != "osd" else g.y + g.height - h - 120
+        if kind == "osd":
+            y = g.y + g.height - ath.OSD_H - 120 - pad
+        else:
+            y = g.y + (g.height - h) // 2
         self.move(x, y)
+        if not was_visible:
+            self.t0 = GLib.get_monotonic_time() / 1e6
+            # frosted glass: blur what is behind the window, taken just before it appears
+            self.backdrop = ath.capture_backdrop(x, y, w, h, th["blur"]) if kind in ("menu", "osd") and th["blur"] > 0 else None
         self.show_all()
         self.queue_draw()
+        if kind in ("menu", "osd") and ath.is_animated(th) and not self.anim_id:
+            self.anim_id = GLib.timeout_add(40, self._anim)
         if self.hide_id:
             GLib.source_remove(self.hide_id)
         self.hide_id = GLib.timeout_add(timeout_ms, self._timeout)
+
+    def _anim(self):
+        if not self.get_visible():
+            self.anim_id = 0
+            return False
+        self.queue_draw()
+        return True
 
     def _timeout(self):
         self.hide_id = 0
@@ -764,12 +789,14 @@ class Overlay(Gtk.Window):
         cr.set_source_rgba(0, 0, 0, 0)
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
+        t = GLib.get_monotonic_time() / 1e6 - self.t0
         if self.kind == "menu":
-            self.draw_menu(cr)
+            items = [(ticon(i), tname(i)) for i in self.items]
+            ath.draw_menu(cr, self.theme, items, min(self.sel, len(items) - 1), t, self.msize, self.backdrop)
         elif self.kind == "image":
             self.draw_image(cr)
         else:
-            self.draw_osd(cr)
+            ath.draw_osd(cr, self.theme, self.label, self.value, t, self.backdrop)
 
     def draw_image(self, cr):
         iw, ih = self.image.get_width(), self.image.get_height()
@@ -781,55 +808,6 @@ class Overlay(Gtk.Window):
         cr.fill()
         Gdk.cairo_set_source_pixbuf(cr, self.image, 0, 0)
         cr.paint()
-
-    def draw_menu(self, cr):
-        cx = cy = self.msize / 2
-        r_out, r_in = cx - 10, 105
-        r_txt = r_in + 0.53 * (r_out - r_in)
-        n = len(self.items)
-        cr.set_source_rgba(0.08, 0.08, 0.1, 0.88)
-        cr.arc(cx, cy, cx - 5, 0, 2 * math.pi)
-        cr.fill()
-        for i in range(n):
-            a0 = -math.pi / 2 + (i - 0.5) * 2 * math.pi / n
-            a1 = a0 + 2 * math.pi / n
-            cr.new_path()
-            cr.arc(cx, cy, r_out, a0 + 0.02, a1 - 0.02)
-            cr.arc_negative(cx, cy, r_in, a1 - 0.02, a0 + 0.02)
-            cr.close_path()
-            if i == self.sel:
-                cr.set_source_rgba(0.25, 0.55, 1.0, 0.95)
-            else:
-                cr.set_source_rgba(1, 1, 1, 0.08)
-            cr.fill()
-            am = (a0 + a1) / 2
-            tx, ty = cx + r_txt * math.cos(am), cy + r_txt * math.sin(am)
-            cr.set_source_rgba(1, 1, 1, 1)
-            text(cr, ticon(self.items[i]), 20, tx, ty - 11)
-            text(cr, tname(self.items[i]), 9, tx, ty + 17)
-        cr.set_source_rgba(1, 1, 1, 0.9)
-        text(cr, tname(self.items[self.sel]), 13, cx, cy)
-
-    def draw_osd(self, cr):
-        w, h, r = 360, 110, 22
-        cr.new_sub_path()
-        cr.arc(w - r, r, r, -math.pi / 2, 0)
-        cr.arc(w - r, h - r, r, 0, math.pi / 2)
-        cr.arc(r, h - r, r, math.pi / 2, math.pi)
-        cr.arc(r, r, r, math.pi, 3 * math.pi / 2)
-        cr.close_path()
-        cr.set_source_rgba(0.08, 0.08, 0.1, 0.88)
-        cr.fill()
-        cr.set_source_rgba(1, 1, 1, 1)
-        has_bar = self.value is not None
-        text(cr, self.label, 15, 24, 34 if has_bar else h / 2, center=False)
-        if has_bar:
-            cr.set_source_rgba(1, 1, 1, 0.2)
-            cr.rectangle(24, 66, w - 48, 12)
-            cr.fill()
-            cr.set_source_rgba(0.25, 0.55, 1.0, 1)
-            cr.rectangle(24, 66, (w - 48) * max(0.0, min(1.0, self.value)), 12)
-            cr.fill()
 
 
 class Dial:
@@ -904,6 +882,7 @@ class Dial:
             else:
                 tools.append(ID_TO_TOOL[mode_id])
         self.menu_tools = tools or [SCROLL]
+        self.overlay.theme = acfg.theme_of(self.cfg)
         if getattr(self, "tool", SCROLL) >= CUSTOM_BASE:  # the custom list may have changed: find the mode again
             cid = self.cur_custom_id
             self.tool = CUSTOM_BASE + ids.index(cid) if cid in ids else SCROLL

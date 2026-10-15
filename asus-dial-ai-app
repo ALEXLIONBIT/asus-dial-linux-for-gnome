@@ -695,6 +695,9 @@ class UiBridge:
             self.app.banner_update(p["text"], p["frac"], p["lines"])
         return False
 
+    def notice(self, text):
+        GLib.idle_add(self.app.toast, text)
+
     def progress_done(self):
         with self.lock:
             self.pending = None
@@ -993,7 +996,7 @@ class App:
                                           tooltip_text=T("speak_tip"), active=self.cfg["auto_speak"])
         self.speak_btn.get_style_context().add_class("iconbtn")
         self.speak_btn.set_valign(Gtk.Align.END)
-        self.speak_btn.connect("toggled", lambda b: self.cfg.set("auto_speak", b.get_active()))
+        self.speak_btn.connect("toggled", self.on_speak_toggled)
         comp.pack_start(self.speak_btn, False, False, 0)
         self.send_btn = Gtk.Button(image=Gtk.Image.new_from_icon_name("go-up-symbolic", Gtk.IconSize.LARGE_TOOLBAR))
         self.send_btn.get_style_context().add_class("sendbtn")
@@ -1427,7 +1430,7 @@ class App:
             if self.voice is None:
                 self.voice = core.Voice(self.cfg, self.ui)
             self.voice.cancel.clear()
-            self.voice.start()
+            self.voice.start(stt=False)
             self.voice.speak(core.speakable(text))
         except Exception as e:  # noqa: BLE001
             core.log(f"read aloud: {e!r}")
@@ -1493,6 +1496,30 @@ class App:
             if piece:
                 self.speak_q.put(piece)
 
+    def on_speak_toggled(self, b):
+        on = b.get_active()
+        self.cfg.set("auto_speak", on)
+        self.toast(T("speak_on" if on else "speak_off"))
+        if on:
+            threading.Thread(target=self.warm_speaker, daemon=True).start()
+
+    def warm_speaker(self):
+        """Prepares the voice as soon as the speaker button is switched on, so the first answer is read without waiting."""
+        try:
+            if self.voice is None:
+                self.voice = core.Voice(self.cfg, self.ui)
+            self.voice.cancel.clear()
+            self.voice.start(stt=False)
+            if self.voice.output_silent():
+                self.voice.warn_once("sink_muted")
+        except core.Cancelled:
+            pass
+        except Exception as e:  # noqa: BLE001
+            core.log(f"speaker warm-up: {e!r}")
+            GLib.idle_add(self.toast, f"{T('error')}: {str(e)[:140]}")
+        finally:
+            self.ui.progress_done()
+
     def ensure_speaker(self):
         """Outside the voice mode a little thread reads the queued sentences aloud."""
         if getattr(self, "_speaker", None) and self._speaker.is_alive():
@@ -1505,7 +1532,7 @@ class App:
             if self.voice is None:
                 self.voice = core.Voice(self.cfg, self.ui)
             self.voice.cancel.clear()
-            self.voice.start()
+            self.voice.start(stt=False)
             while True:
                 if self.voice_on:  # the voice mode owns the queue while it is on
                     return

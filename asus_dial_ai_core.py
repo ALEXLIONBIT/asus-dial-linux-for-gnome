@@ -150,6 +150,14 @@ STR = {
     "checksum_bad": ("The checksum does not match: download discarded.",
                      "La suma de comprobación no coincide: descarga descartada.",
                      "Il checksum non coincide: download scartato."),
+    "mic_loud": ("The microphone is saturated: lower its input volume in the system sound settings",
+                 "El micrófono está saturado: baja su volumen de entrada en los ajustes de sonido",
+                 "Il microfono è saturo: abbassa il volume di ingresso nelle impostazioni audio"),
+    "sink_muted": ("The sound output is muted or at 0%: raise the volume to hear the voice",
+                   "La salida de sonido está silenciada o al 0 %: sube el volumen para oír la voz",
+                   "L'uscita audio è muta o a 0%: alza il volume per sentire la voce"),
+    "speak_on": ("Answers will be read aloud", "Las respuestas se leerán en voz alta", "Le risposte verranno lette ad alta voce"),
+    "speak_off": ("Reading aloud is off", "Lectura en voz alta desactivada", "Lettura ad alta voce disattivata"),
     "error": ("Something went wrong", "Algo salió mal", "Qualcosa è andato storto"),
     "cpu_note": ("No usable GPU: running on the CPU.", "Sin GPU utilizable: se usa la CPU.",
                  "Nessuna GPU utilizzabile: uso la CPU."),
@@ -826,15 +834,36 @@ class Voice:
         self.cancel = threading.Event()
         self.lang = LANG[0]  # language of the last thing the user said
         self.tmp = tempfile.mkdtemp(prefix="adai-voice-")
+        self.stt_ready = False
+        self.warned = set()
 
-    def start(self):
+    def start(self, stt=True):
+        """Starts the voice worker. Speech to text (a big model) is loaded only when asked for: reading answers aloud does not need it."""
         if not self.w or not self.w.alive():
             Env.ensure("voice", self.ui, self.cancel)
-            self.ui.progress(T("step_stt"), None)
             self.w = JsonWorker("voice", on_log=lambda line: self.ui.progress(None, None, line))
+            self.stt_ready = False
+        if stt and not self.stt_ready:
+            self.ui.progress(T("step_stt"), None)
             self.w.send(cmd="stt_load", size=self.cfg["stt_size"])
             self._wait("stt_ready", T("step_stt"))
+            self.stt_ready = True
         self.ui.progress_done()
+
+    def warn_once(self, key):
+        """Tells the user about a problem with the sound setup, once per kind (a problem that goes away can be told again)."""
+        if key not in self.warned:
+            self.warned.add(key)
+            self.ui.notice(T(key))
+
+    @staticmethod
+    def output_silent():
+        """True if the default sound output is muted or at (almost) 0%."""
+        try:
+            out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True, timeout=3).stdout
+            return "[MUTED]" in out or float(out.split()[1]) < 0.03
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+            return False
 
     def _wait(self, want, text):
         while True:
@@ -866,7 +895,10 @@ class Voice:
                 if len(calib) < 20:  # first 0.4 s: measure the room
                     calib.append(r)
                     continue
-                thr = max(sum(calib) / len(calib) * 2.8, 400.0)
+                room = sum(calib) / len(calib)
+                if room > 9000:  # clipping: speech cannot stand out of it
+                    self.warn_once("mic_loud")
+                thr = min(max(room * 2.8, 400.0), 12000.0)
                 if not started:
                     pre = (pre + [b])[-15:]
                     floor_n = floor_n + 1 if r > thr else 0
@@ -932,6 +964,10 @@ class Voice:
         player = shutil.which("paplay") or shutil.which("pw-play") or shutil.which("aplay")
         if not player:
             return
+        if self.output_silent():
+            self.warn_once("sink_muted")
+        else:
+            self.warned.discard("sink_muted")
         self.player = subprocess.Popen([player, wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         t0, win = time.time(), int(rate * 0.04)
         try:

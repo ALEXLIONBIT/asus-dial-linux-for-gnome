@@ -4,6 +4,7 @@ After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
+Environment=GDK_BACKEND=x11
 ExecStart=%h/.local/bin/asus-dial
 Restart=on-failure
 RestartSec=2

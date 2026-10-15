@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=ASUS Dial AI
+Comment=Chat and voice assistant for the ASUS Dial: local models, plus Llama 3.3 70B with AirLLM
+Exec=asus-dial-ai-app
+Icon=asus-dial-ai
+Terminal=false
+Categories=Utility;Chat;
+StartupWMClass=asus-dial-ai

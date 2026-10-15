@@ -84,10 +84,10 @@ STR = {
     "volume": ("Volume", "Volumen", "Volume"),
     "muted": (" (muted)", " (silenciado)", " (muto)"),
     "brightness": ("☀ Brightness {b}%", "☀ Brillo {b}%", "☀ Luminosità {b}%"),
-    "ai_pick": ("🤖 AI {lvl}: {name} ({size})  (click to open)", "🤖 IA {lvl}: {name} ({size})  (clic para abrir)",
-                "🤖 AI {lvl}: {name} ({size})  (clic per aprire)"),
+    "ai_pick": ("🤖 AI |{lvl}|: {name} ({size})  (click to open)", "🤖 IA |{lvl}|: {name} ({size})  (clic para abrir)",
+                "🤖 AI |{lvl}|: {name} ({size})  (clic per aprire)"),
     "robot_hi": ("Hi! Waking up\n{name}…", "¡Hola! Despertando a\n{name}…", "Ciao! Sto svegliando\n{name}…"),
-    "ai_no_terminal": ("🤖 No terminal found", "🤖 No se encontró un terminal", "🤖 Nessun terminale trovato"),
+    "ai_no_terminal": ("🤖 Could not open the AI app", "🤖 No se pudo abrir la app de IA", "🤖 Impossibile aprire l'app AI"),
     "language": ("🌐 Language: {name}", "🌐 Idioma: {name}", "🌐 Lingua: {name}"),
 }
 TIMER_MESSAGES_L = {
@@ -156,10 +156,13 @@ NIGHT_STATE = os.path.expanduser("~/.config/asus-dial.night.json")
 ALT_RELEASE_MS = 1200  # idle time after which the window switcher confirms
 RICKROLL_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 # AI mode: levels -> (script argument, model shown to the user, download size)
-AI_LEVELS = (("low", "MiniCPM5-2B", "1.6 GB"), ("mid", "Llama 3.1 8B", "4.9 GB"), ("high", "DeepSeek-R1-Distill-Qwen-14B", "9 GB"))
-AI_LEVEL_NAMES = {"en": ("Low", "Medium", "High"), "es": ("Bajo", "Medio", "Alto"), "it": ("Basso", "Medio", "Alto")}
+AI_LEVELS = (("low", "MiniCPM5-2B", "1.6 GB"), ("mid", "Llama 3.1 8B", "4.9 GB"), ("high", "DeepSeek-R1-Distill-Qwen-14B", "9 GB"),
+             ("max", "Llama 3.3 70B (AirLLM)", "~140 GB"))
+AI_LEVEL_NAMES = {"en": ("Low", "Medium", "High", "MAX"), "es": ("Bajo", "Medio", "Alto", "MAX"), "it": ("Basso", "Medio", "Alto", "MAX")}
+AI_LEVEL_COLORS = ((0.24, 0.86, 0.52), (1.0, 0.76, 0.2), (1.0, 0.35, 0.3), "rainbow")  # name colour in the on-screen message
 AI_FILE = os.path.expanduser("~/.config/asus-dial.ai")
-AI_SCRIPT = "asus-dial-ai"
+AI_SCRIPT = "asus-dial-ai-app"
+AI_SOCKET = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "asus-dial-ai.sock")
 ROBOT_ANIM_S, ROBOT_OPEN_AT_S = 2.9, 2.2
 RICK_ANIM_S = 3.4  # length of the divine animation
 RICK_OPEN_AT_S = 2.55  # when, during the white flash, the browser is opened
@@ -511,6 +514,21 @@ def rounded_rect(cr, x, y, w, h, r):
     cr.close_path()
 
 
+def ai_tell_app(cmd):
+    """Send a command to the ASUS Dial AI app if it is open; True when it answered."""
+    import socket
+    try:
+        c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        c.settimeout(0.3)
+        c.connect(AI_SOCKET)
+        c.sendall((cmd + "\n").encode())
+        c.recv(8)
+        c.close()
+        return True
+    except OSError:
+        return False
+
+
 def make_robot_draw(message):
     """A friendly robot pops up, powers on (eyes, antenna, loading bar), waves and says message in a speech bubble."""
 
@@ -813,7 +831,8 @@ class Overlay(Gtk.Window):
 
     def _ensure_frames(self):
         now = GLib.get_monotonic_time() / 1e6
-        busy = self.vis_dir != 0 or self.sel_from is not None or (self.kind in ("menu", "osd") and ath.is_animated(self.theme))
+        rainbow_label = self.kind == "osd" and isinstance(self.label, list) and any(c == "rainbow" for _s, c in self.label)
+        busy = self.vis_dir != 0 or self.sel_from is not None or rainbow_label or (self.kind in ("menu", "osd") and ath.is_animated(self.theme))
         if busy and not self.frame_id and self.get_visible():
             self.frame_id = GLib.timeout_add(16, self._frame)
 
@@ -1249,6 +1268,7 @@ class Dial:
             self.ai_level = max(0, min(len(AI_LEVELS) - 1, self.ai_level + d))
             self.save_ai_level()
             self.show_ai_label()
+            ai_tell_app("model " + AI_LEVELS[self.ai_level][0])  # the AI app, if open, switches model with the wheel
         elif tool == FIND:
             for _ in range(n):
                 self.ui.tap(KEY_F3, shift=d < 0)
@@ -1487,7 +1507,9 @@ class Dial:
 
     def show_ai_label(self):
         _arg, name, size = AI_LEVELS[self.ai_level]
-        self.show_label(L("ai_pick", lvl=AI_LEVEL_NAMES[_lang[0]][self.ai_level], name=name, size=size), self.ai_level / (len(AI_LEVELS) - 1))
+        text = L("ai_pick", lvl=AI_LEVEL_NAMES[_lang[0]][self.ai_level], name=name, size=size)
+        pre, lvl, post = text.split("|", 2)  # the level name is drawn in its own colour (MAX: rainbow)
+        self.show_label([(pre, None), (lvl, AI_LEVEL_COLORS[self.ai_level]), (post, None)], self.ai_level / (len(AI_LEVELS) - 1))
 
     def ai_start(self):
         if self.ai_busy:
@@ -1496,20 +1518,19 @@ class Dial:
         _arg, name, _size = AI_LEVELS[self.ai_level]
         self.robot_win.play(make_robot_draw(L("robot_hi", name=name)), ROBOT_ANIM_S, size=(560, 520), fps=30,
                             on_done=lambda: setattr(self, "ai_busy", False))
-        GLib.timeout_add(int(ROBOT_OPEN_AT_S * 1000), self.ai_open_terminal)
+        GLib.timeout_add(int(ROBOT_OPEN_AT_S * 1000), self.ai_open_app)
 
-    def ai_open_terminal(self):
+    def ai_open_app(self):
+        arg = AI_LEVELS[self.ai_level][0]
+        if ai_tell_app("open " + arg):  # already running: it just comes forward with this model
+            return False
         script = os.path.join(os.path.dirname(os.path.realpath(__file__)), AI_SCRIPT)
         if not os.path.exists(script):
             script = os.path.expanduser(f"~/.local/bin/{AI_SCRIPT}")
-        arg = AI_LEVELS[self.ai_level][0]
-        for cmd in (["gnome-terminal", "--title=ASUS Dial AI", "--", script, arg], ["x-terminal-emulator", "-e", script, arg]):
-            try:
-                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return False
-            except OSError:
-                continue
-        self.show_label(L("ai_no_terminal"))
+        try:
+            subprocess.Popen([script, "--model", arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError:
+            self.show_label(L("ai_no_terminal"))
         return False
 
     # --- rickroll: divine animation, then the browser opens the video full screen ---

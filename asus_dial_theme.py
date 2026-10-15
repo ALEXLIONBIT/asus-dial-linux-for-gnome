@@ -119,6 +119,23 @@ def text(cr, s, size, x, y, center=True, bold=False):
     PangoCairo.show_layout(cr, layout)
 
 
+def text_segments(cr, segs, size, x, y, base, t):
+    """Draw (string, colour) pieces one after another; colour None = base, "rainbow" = a moving rainbow."""
+    layout = PangoCairo.create_layout(cr)
+    layout.set_font_description(Pango.FontDescription(f"Sans Bold {size}"))
+    for s, col in segs:
+        for i, ch in enumerate(s if col == "rainbow" else [s]):
+            layout.set_text(ch, -1)
+            w, h = layout.get_pixel_size()
+            if col == "rainbow":
+                cr.set_source_rgba(*colorsys.hsv_to_rgb((t * 0.35 + i * 0.09) % 1.0, 0.75, 1.0), 1)
+            else:
+                cr.set_source_rgba(*(base if col is None else col), 1)
+            cr.move_to(x, y - h / 2)
+            PangoCairo.show_layout(cr, layout)
+            x += w
+
+
 def capture_backdrop(x, y, w, h, radius):
     """A blurred snapshot of the screen area x, y, w, h as a cairo surface (None if Pillow or the grab is unavailable)."""
     try:
@@ -792,7 +809,10 @@ def _osd_body(cr, theme, label, value, t, backdrop):
 
     cr.set_source_rgba(*tc, 1)
     has_bar = value is not None
-    text(cr, label, 15, x0 + 24, y0 + (34 if has_bar else h / 2), center=False)
+    if isinstance(label, list):
+        text_segments(cr, label, 15, x0 + 24, y0 + (34 if has_bar else h / 2), tc, t)
+    else:
+        text(cr, label, 15, x0 + 24, y0 + (34 if has_bar else h / 2), center=False)
     if has_bar:
         cr.set_source_rgba(*tc, 0.2)
         cr.rectangle(x0 + 24, y0 + 66, w - 48, 12)

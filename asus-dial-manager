@@ -86,7 +86,7 @@ STR = {
                         "Escribe lo que escribe el personaje. {name} = el nombre de abajo. Vacío = mensaje predeterminado.",
                         "Scrivi cosa scrive il personaggio. {name} = il nome qui sotto. Vuoto = messaggio predefinito."),
     "ch_name": ("Name to greet", "Nombre a saludar", "Nome da salutare"),
-    "ch_name_hint": ("empty = your system name", "vacío = tu nombre del sistema", "vuoto = il nome del tuo sistema"),
+    "ch_name_hint": ("empty = no name", "vacío = sin nombre", "vuoto = nessun nome"),
     "ch_preview_now": ("Play it now on screen", "Reproducir ahora en pantalla", "Riproduci ora sullo schermo"),
     "tab_look": ("Appearance", "Aspecto", "Aspetto"),
     "preset": ("Preset", "Preajuste", "Preset"),

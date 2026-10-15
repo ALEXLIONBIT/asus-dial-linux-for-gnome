@@ -8,35 +8,31 @@ theme is rainbow or the option is on) and a Halloween look (witch hat, ghost, ba
 import colorsys
 import math
 import os
+import re
 
 import gi
 
 gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import GLib, Pango, PangoCairo
+from gi.repository import Pango, PangoCairo
 import cairo
 
 import asus_dial_config as acfg
 import asus_dial_theme as ath
 
 CHARACTERS = ("human", "robot", "skeleton", "image")
-DEFAULT_MESSAGES = {"en": "Welcome to the PC, {name}!", "es": "¡Bienvenido al PC, {name}!", "it": "Benvenuto al PC, {name}!"}
+DEFAULT_MESSAGES = {"en": "Welcome to the PC!", "es": "¡Bienvenido al PC!", "it": "Benvenuto al PC!"}
 TYPE_CPS = 16.0  # letters per second
 T_WALK_IN, T_WAVE, T_BUBBLE, T_TYPE = 2.4, 2.8, 3.2, 3.6
 HOLD_S, BOW_S, WALK_OUT_S = 3.5, 0.8, 2.6
 
 
-def default_name():
-    name = (GLib.get_real_name() or "").split(",")[0].split(" ")[0].strip()
-    if not name or name.lower() == "unknown":
-        name = GLib.get_user_name() or ""
-    return name[:1].upper() + name[1:]
-
-
 def resolve_message(cfg, lang):
     w = cfg.get("welcome", {})
     template = (w.get("message") or "").strip() or DEFAULT_MESSAGES.get(lang, DEFAULT_MESSAGES["en"])
-    name = (w.get("name") or "").strip() or default_name()
+    name = (w.get("name") or "").strip()  # no name unless the user sets one
+    if not name:  # drop "{name}" together with the comma/space before it: "Hi, {name}!" -> "Hi!"
+        return re.sub(r"\s*,?\s*\{name\}", "", template)
     try:
         return template.format(name=name)
     except (KeyError, IndexError, ValueError):

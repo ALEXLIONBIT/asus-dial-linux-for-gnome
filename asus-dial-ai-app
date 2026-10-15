@@ -1,0 +1,1638 @@
+#!/usr/bin/env python3
+"""ASUS Dial AI: a chat app for the ASUS Dial. Chats, voice mode with a living orb, four models (Low / Medium / High / MAX)
+that the dial's wheel can change at any time, and plenty of looks to pick from.
+
+  asus-dial-ai-app [--model low|mid|high|max] [--voice] [--screenshot FILE]
+"""
+import colorsys
+import math
+import os
+import queue
+import socket
+import sys
+import threading
+import time
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("Pango", "1.0")
+gi.require_version("PangoCairo", "1.0")
+import cairo  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
+
+import asus_dial_ai_core as core  # noqa: E402
+from asus_dial_ai_core import MODELS, T, model_by_id, parse_segments  # noqa: E402
+
+SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "asus-dial-ai.sock")
+ICON = "asus-dial-ai"
+
+# ------------------------------------------------------------------------------------------------ colours
+THEMES = {
+    "midnight": dict(dark=True, bg="#0f1220", side="#0b0d18", ai="#1a1f33", text="#e8eaf6", dim="#8c93b0", line="255,255,255", code="#0a0c16"),
+    "oled": dict(dark=True, bg="#000000", side="#000000", ai="#111116", text="#f2f2f2", dim="#80808c", line="255,255,255", code="#08080a"),
+    "light": dict(dark=False, bg="#f6f7fb", side="#eceef6", ai="#ffffff", text="#1b1d2a", dim="#6b7089", line="0,0,0", code="#eef0f7"),
+    "sunset": dict(dark=True, bg="#1d1226", side="#150c1c", ai="#2b1a38", text="#ffe9f2", dim="#b99ab0", line="255,255,255", code="#120a19"),
+    "ocean": dict(dark=True, bg="#08202b", side="#061820", ai="#0f3342", text="#e3f6ff", dim="#86aebf", line="255,255,255", code="#051419"),
+    "forest": dict(dark=True, bg="#0e1c14", side="#09140e", ai="#17301f", text="#e6f7ea", dim="#8fb09a", line="255,255,255", code="#08110b"),
+}
+
+
+def hex_rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+
+def to_hex(rgb):
+    return "#%02x%02x%02x" % tuple(round(max(0, min(1, c)) * 255) for c in rgb)
+
+
+def shift_hue(rgb, d):
+    h, s, v = colorsys.rgb_to_hsv(*rgb)
+    return colorsys.hsv_to_rgb((h + d) % 1.0, s, v)
+
+
+def rainbow(t, i=0.0, s=0.7, v=1.0):
+    return colorsys.hsv_to_rgb((t * 0.2 + i * 0.08) % 1.0, s, v)
+
+
+def model_colors(mid, t):
+    """Three colours that dress an orb / a label for the model."""
+    m = model_by_id(mid)
+    if m["color"] == "rainbow":
+        return [rainbow(t, 0), rainbow(t, 2.2), rainbow(t, 4.4)]
+    b = hex_rgb(m["color"])
+    return [b, shift_hue(b, 0.07), shift_hue(b, -0.07)]
+
+
+class Style:
+    """The look: rebuilt into CSS whenever a setting changes."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), self.provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 5)
+        self.apply()
+
+    @property
+    def pal(self):
+        return THEMES.get(self.cfg["theme"], THEMES["midnight"])
+
+    @property
+    def dark(self):
+        return self.pal["dark"]
+
+    def apply(self):
+        c, p = self.cfg, self.pal
+        acc = hex_rgb(c["accent"])
+        a1, a2 = to_hex(acc), to_hex(shift_hue(acc, 0.09))
+        rad, fs, line = c["radius"], c["font_size"], p["line"]
+        css = f"""
+        window.adai, .adai-bg {{ background: {p['bg']}; color: {p['text']}; font-size: {fs}px; }}
+        .adai headerbar {{ background: {p['side']}; border-bottom: 1px solid rgba({line},0.08); box-shadow: none; color: {p['text']}; min-height: 52px; }}
+        .adai headerbar button {{ color: {p['text']}; }}
+        .adai .sidebar {{ background: {p['side']}; border-right: 1px solid rgba({line},0.08); }}
+        .adai .side-title {{ color: {p['dim']}; font-size: {max(10, fs - 3)}px; font-weight: bold; letter-spacing: 1px; }}
+        .adai .chat-item {{ border-radius: 12px; padding: 9px 12px; margin: 1px 8px; color: {p['text']}; background: transparent; }}
+        .adai .chat-item:hover {{ background: rgba({line},0.07); }}
+        .adai list row:selected .chat-item, .adai .chat-item.current {{ background: rgba({line},0.12); }}
+        .adai list, .adai list row {{ background: transparent; }}
+        .adai list row:selected {{ background: transparent; }}
+        .adai .x-btn {{ background: transparent; border: none; box-shadow: none; padding: 0 6px; min-height: 22px; min-width: 22px; color: {p['dim']}; border-radius: 11px; }}
+        .adai .x-btn:hover {{ background: rgba(255,80,80,0.25); color: #ff6b6b; }}
+        .adai entry.search {{ background: rgba({line},0.07); border-radius: 12px; border: 1px solid transparent; margin: 6px 12px; padding: 6px 10px; color: {p['text']}; box-shadow: none; }}
+        .adai entry.search:focus {{ border-color: {a1}; }}
+        .adai .primary {{ background-image: linear-gradient(to bottom right, {a1}, {a2}); color: white; border: none; border-radius: 14px; padding: 9px 14px; font-weight: bold; box-shadow: 0 4px 14px rgba(0,0,0,0.28); text-shadow: none; }}
+        .adai .primary:hover {{ opacity: 0.92; }}
+        .adai .iconbtn {{ background: rgba({line},0.07); border: none; box-shadow: none; border-radius: 999px; min-width: 40px; min-height: 40px; padding: 0; color: {p['text']}; }}
+        .adai .iconbtn:hover {{ background: rgba({line},0.16); }}
+        .adai .iconbtn:checked {{ background-image: linear-gradient(to bottom right, {a1}, {a2}); color: white; }}
+        .adai .sendbtn {{ background-image: linear-gradient(to bottom right, {a1}, {a2}); border: none; border-radius: 999px; min-width: 40px; min-height: 40px; padding: 0; color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.3); }}
+        .adai .sendbtn.stop {{ background-image: none; background-color: #ff5a4d; }}
+        .adai .bubble {{ border-radius: {rad}px; padding: 11px 15px; }}
+        .adai .bubble-ai {{ background: {p['ai']}; color: {p['text']}; border: 1px solid rgba({line},0.07); box-shadow: 0 2px 10px rgba(0,0,0,0.12); border-top-left-radius: {max(4, rad // 4)}px; }}
+        .adai .bubble-user {{ background-image: linear-gradient(to bottom right, {a1}, {a2}); color: white; border-top-right-radius: {max(4, rad // 4)}px; box-shadow: 0 4px 16px rgba(0,0,0,0.22); }}
+        .adai .bubble-user label {{ color: white; }}
+        .adai .meta {{ color: {p['dim']}; font-size: {max(9, fs - 4)}px; }}
+        .adai .tiny {{ background: transparent; border: none; box-shadow: none; color: {p['dim']}; padding: 0 6px; min-height: 22px; border-radius: 8px; font-size: {max(9, fs - 4)}px; }}
+        .adai .tiny:hover {{ background: rgba({line},0.1); color: {p['text']}; }}
+        .adai .code-block {{ background: {p['code']}; border-radius: {max(6, rad // 2)}px; border: 1px solid rgba({line},0.08); padding: 4px 12px 10px 12px; margin: 4px 0; }}
+        .adai .code-block label {{ font-family: monospace; font-size: {max(10, fs - 1)}px; color: {p['text']}; }}
+        .adai .code-lang {{ color: {p['dim']}; font-size: {max(9, fs - 4)}px; font-family: sans; }}
+        .adai .think {{ color: {p['dim']}; font-style: italic; }}
+        .adai expander title {{ color: {p['dim']}; }}
+        .adai .composer {{ background: {p['ai']}; border-radius: {rad + 10}px; border: 1px solid rgba({line},0.1); padding: 6px 8px 6px 16px; box-shadow: 0 8px 28px rgba(0,0,0,0.22); }}
+        .adai .composer.focused {{ border-color: {a1}; }}
+        .adai .transparent, .adai scrolledwindow.transparent, .adai viewport.transparent {{ background: transparent; }}
+        .adai textview, .adai textview text {{ background: transparent; color: {p['text']}; font-size: {fs + 1}px; }}
+        .adai .hello {{ font-size: {fs * 2}px; font-weight: bold; color: {p['text']}; }}
+        .adai .chip {{ background: rgba({line},0.07); border: 1px solid rgba({line},0.1); border-radius: 16px; padding: 10px 16px; color: {p['text']}; box-shadow: none; }}
+        .adai .chip:hover {{ background: rgba({line},0.15); border-color: {a1}; }}
+        .adai .banner {{ background: {p['ai']}; border-radius: 16px; border: 1px solid rgba({line},0.12); padding: 12px 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }}
+        .adai progressbar trough {{ background: rgba({line},0.12); border-radius: 6px; min-height: 8px; border: none; }}
+        .adai progressbar progress {{ background-image: linear-gradient(to right, {a1}, {a2}); border-radius: 6px; min-height: 8px; border: none; }}
+        .adai .toast {{ background: rgba(20,20,30,0.92); color: white; border-radius: 14px; padding: 8px 16px; }}
+        .adai .voice-bg {{ background: rgba({','.join(str(round(x * 255)) for x in hex_rgb(p['bg']))},0.97); }}
+        .adai .voice-state {{ font-size: {fs * 1.7}px; font-weight: bold; }}
+        .adai .voice-text {{ font-size: {fs + 3}px; color: {p['dim']}; }}
+        .adai scrollbar slider {{ background: rgba({line},0.22); border-radius: 6px; min-width: 6px; }}
+        .adai scrollbar {{ background: transparent; border: none; }}
+        .adai .hint {{ color: {p['dim']}; font-size: {max(9, fs - 3)}px; }}
+        .adai .warn {{ color: #ffb454; font-size: {max(9, fs - 3)}px; }}
+        .settings {{ background: {p['bg']}; color: {p['text']}; }}
+        .settings label {{ color: {p['text']}; }}
+        .settings notebook > header {{ background: {p['side']}; }}
+        .settings .sect {{ font-weight: bold; color: {p['dim']}; }}
+        """
+        self.provider.load_from_data(css.encode())
+
+
+# ------------------------------------------------------------------------------------------------ small widgets
+def ease(x):
+    x = max(0.0, min(1.0, x))
+    return 1 - (1 - x) ** 3
+
+
+class Ticker:
+    """Mixin: a frame callback that only draws while the widget is shown, capped to fps."""
+
+    def start_ticks(self, fps=40):
+        self._tick_gap = 1.0 / fps
+        self._last_tick = 0.0
+        self.t = 0.0
+        self._tick_id = self.add_tick_callback(self._on_tick)
+
+    def _on_tick(self, w, clock):
+        now = clock.get_frame_time() / 1e6
+        if self.get_mapped() and now - self._last_tick >= self._tick_gap and self.should_tick():
+            dt = min(0.1, now - self._last_tick) if self._last_tick else 0.0
+            self._last_tick = now
+            self.t = now
+            self.step(dt)
+            self.queue_draw()
+        return True
+
+    def step(self, dt):
+        pass
+
+    def should_tick(self):
+        return True
+
+
+class Orb(Gtk.DrawingArea, Ticker):
+    """The AI bubble: a liquid orb that breathes, thinks, listens and speaks."""
+
+    def __init__(self, app, size=64, animated=True):
+        super().__init__()
+        self.app, self.state, self.model = app, "idle", "low"
+        self.level, self.lv = 0.0, 0.0
+        self.level_fn = None
+        self.set_size_request(size, size)
+        self.connect("draw", self.on_draw)
+        self.always = size > 100  # big orbs always live; the little avatar of a message only while it is answering
+        self.rf = 0.62 if size > 100 else 0.7
+        self.t = 0.0
+        self.start_ticks(40)
+
+    def should_tick(self):
+        return self.always or self.state != "idle"
+
+    def set_state(self, s):
+        self.state = s
+        self.queue_draw()
+
+    def step(self, dt):
+        if not self.app.cfg["animations"]:
+            return
+        tgt = self.level_fn() if self.level_fn else None
+        if tgt is None:
+            tgt = {"idle": 0.05, "thinking": 0.22, "listening": 0.12, "speaking": 0.3 + 0.25 * math.sin(self.t * 9)}.get(self.state, 0.05)
+        self.lv += (tgt - self.lv) * min(1.0, dt * 12)
+
+    def on_draw(self, w, cr):
+        W, H = self.get_allocated_width(), self.get_allocated_height()
+        cx, cy = W / 2, H / 2
+        R = min(W, H) / 2 * self.rf
+        t = self.t if self.app.cfg["animations"] else 0.0
+        lv = self.lv
+        cols = model_colors(self.model, t)
+        dark = self.app.style.dark
+        style = self.app.cfg["orb"]
+        # halo
+        g = cairo.RadialGradient(cx, cy, R * 0.5, cx, cy, R * (1.55 + 0.5 * lv))
+        g.add_color_stop_rgba(0, *cols[0], 0.30 + 0.35 * lv)
+        g.add_color_stop_rgba(1, *cols[0], 0)
+        cr.set_source(g)
+        cr.paint()
+        # rings when listening or in the "rings" look
+        if self.state == "listening" or style == "rings":
+            for j in range(3):
+                ph = (t * 0.6 + j / 3) % 1.0
+                cr.arc(cx, cy, R * (1.0 + ph * (0.5 + lv)), 0, 2 * math.pi)
+                cr.set_source_rgba(*cols[j % 3], (1 - ph) * (0.35 + lv * 0.5))
+                cr.set_line_width(2)
+                cr.stroke()
+        if style != "rings":
+            cr.set_operator(cairo.OPERATOR_ADD if dark else cairo.OPERATOR_OVER)
+            amp = 0.05 + 0.2 * lv
+            for k in range(3):
+                n = 72
+                for i in range(n + 1):
+                    th = 2 * math.pi * i / n
+                    r = R * (1 + amp * math.sin(3 * th + t * (1.1 + 0.4 * k) + k * 2.1) + amp * 0.6 * math.sin(5 * th - t * (1.7 + 0.3 * k) + k))
+                    x, y = cx + r * math.cos(th), cy + r * math.sin(th)
+                    cr.line_to(x, y) if i else cr.move_to(x, y)
+                cr.close_path()
+                g = cairo.RadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R * 1.25)
+                g.add_color_stop_rgba(0, *cols[k], 0.5 if dark else 0.85)
+                g.add_color_stop_rgba(1, *cols[(k + 1) % 3], 0.2 if dark else 0.55)
+                cr.set_source(g)
+                cr.fill()
+            cr.set_operator(cairo.OPERATOR_OVER)
+        else:
+            g = cairo.RadialGradient(cx - R * 0.3, cy - R * 0.3, R * 0.1, cx, cy, R)
+            g.add_color_stop_rgba(0, *cols[0], 0.95)
+            g.add_color_stop_rgba(1, *cols[1], 0.7)
+            cr.arc(cx, cy, R * (0.8 + 0.2 * lv), 0, 2 * math.pi)
+            cr.set_source(g)
+            cr.fill()
+        # glassy highlight
+        g = cairo.RadialGradient(cx - R * 0.35, cy - R * 0.42, 0, cx - R * 0.35, cy - R * 0.42, R * 0.55)
+        g.add_color_stop_rgba(0, 1, 1, 1, 0.55)
+        g.add_color_stop_rgba(1, 1, 1, 1, 0)
+        cr.arc(cx, cy, R * 1.02, 0, 2 * math.pi)
+        cr.set_source(g)
+        cr.fill()
+        # thinking: two orbiting arcs
+        if self.state == "thinking":
+            for j in range(2):
+                a = t * 2.6 + j * math.pi
+                cr.arc(cx, cy, R * 1.28, a, a + 1.1)
+                cr.set_source_rgba(*cols[j], 0.9)
+                cr.set_line_width(max(2, R * 0.07))
+                cr.set_line_cap(cairo.LINE_CAP_ROUND)
+                cr.stroke()
+        # sparkles
+        if style == "spark":
+            for j in range(4):
+                a = t * 0.8 + j * math.pi / 2
+                sx, sy = cx + R * 1.35 * math.cos(a), cy + R * 1.35 * math.sin(a)
+                s = R * 0.13 * (0.6 + 0.4 * math.sin(t * 3 + j))
+                cr.move_to(sx, sy - s * 2)
+                cr.curve_to(sx, sy, sx, sy, sx + s * 2, sy)
+                cr.curve_to(sx, sy, sx, sy, sx, sy + s * 2)
+                cr.curve_to(sx, sy, sx, sy, sx - s * 2, sy)
+                cr.curve_to(sx, sy, sx, sy, sx, sy - s * 2)
+                cr.set_source_rgba(1, 1, 1, 0.85)
+                cr.fill()
+
+
+def draw_text(cr, s, x, y, font, color):
+    layout = PangoCairo.create_layout(cr)
+    layout.set_font_description(Pango.FontDescription(font))
+    layout.set_text(s, -1)
+    w, h = layout.get_pixel_size()
+    cr.set_source_rgba(*color)
+    cr.move_to(x, y - h / 2)
+    PangoCairo.show_layout(cr, layout)
+    return w
+
+
+def text_width(widget, s, font):
+    layout = widget.create_pango_layout(s)
+    layout.set_font_description(Pango.FontDescription(font))
+    return layout.get_pixel_size()[0]
+
+
+def draw_rainbow_text(cr, s, x, y, font, t, alpha=1.0):
+    layout = PangoCairo.create_layout(cr)
+    layout.set_font_description(Pango.FontDescription(font))
+    for i, ch in enumerate(s):
+        layout.set_text(ch, -1)
+        w, h = layout.get_pixel_size()
+        cr.set_source_rgba(*rainbow(t, i * 1.0, 0.75, 1.0), alpha)
+        cr.move_to(x, y - h / 2)
+        PangoCairo.show_layout(cr, layout)
+        x += w
+    return x
+
+
+class LevelTag(Gtk.DrawingArea, Ticker):
+    """The model's level name (Low / Medium / High / MAX) in its colour; MAX is an animated rainbow."""
+
+    def __init__(self, app, mid, size_px=12):
+        super().__init__()
+        self.app, self.mid = app, mid
+        self.font = f"Sans Bold {size_px}px"
+        self.label = core.LEVEL_NAMES[core.LANG[0]][core.MODEL_IDS.index(mid)]
+        self.set_size_request(text_width(self, self.label, self.font) + 4, size_px + 8)
+        self.connect("draw", self.on_draw)
+        self.t = 0.0
+        if model_by_id(mid)["color"] == "rainbow":
+            self.start_ticks(24)
+
+    def on_draw(self, w, cr):
+        y = self.get_allocated_height() / 2
+        if model_by_id(self.mid)["color"] == "rainbow":
+            draw_rainbow_text(cr, self.label, 2, y, self.font, self.t if self.app.cfg["animations"] else 0)
+        else:
+            draw_text(cr, self.label, 2, y, self.font, (*hex_rgb(model_by_id(self.mid)["color"]), 1.0))
+
+
+class ModelSwitcher(Gtk.DrawingArea, Ticker):
+    """The four models as a pill track; the highlight slides, the wheel of the dial (and the mouse wheel) change it."""
+
+    H = 38
+
+    def __init__(self, app, on_select):
+        super().__init__()
+        self.app, self.on_select = app, on_select
+        self.idx, self.pos, self.pos_from, self.pos_t0 = 0, 0.0, 0.0, 0.0
+        self.font = "Sans Bold 12"
+        self.labels = core.LEVEL_NAMES[core.LANG[0]]
+        self.widths = [text_width(self, s, self.font) + 30 for s in self.labels]
+        self.set_size_request(sum(self.widths) + 10, self.H)
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK)
+        self.connect("draw", self.on_draw)
+        self.connect("button-press-event", self.on_click)
+        self.connect("scroll-event", self.on_scroll)
+        self.set_has_tooltip(True)
+        self.connect("query-tooltip", self.on_tip)
+        self.start_ticks(60)
+
+    def lefts(self):
+        x, out = 5, []
+        for w in self.widths:
+            out.append(x)
+            x += w
+        return out
+
+    def set_active(self, idx, animate=True):
+        if idx == self.idx and self.pos_t0 == 0.0:
+            return
+        self.pos_from = self.cur_pos()
+        self.idx = idx
+        self.pos_t0 = time.time() if animate and self.app.cfg["animations"] else -1
+        self.queue_draw()
+
+    def cur_pos(self):
+        if self.pos_t0 in (0.0, -1):
+            return float(self.idx)
+        k = ease((time.time() - self.pos_t0) / (0.32 / max(0.2, self.app.cfg["anim_speed"])))
+        return self.pos_from + (self.idx - self.pos_from) * k
+
+    def hit(self, x):
+        for i, l in enumerate(self.lefts()):
+            if l <= x < l + self.widths[i]:
+                return i
+        return None
+
+    def on_click(self, w, ev):
+        i = self.hit(ev.x)
+        if i is not None:
+            self.on_select(core.MODEL_IDS[i])
+
+    def on_scroll(self, w, ev):
+        d = 0
+        if ev.direction == Gdk.ScrollDirection.UP:
+            d = -1
+        elif ev.direction == Gdk.ScrollDirection.DOWN:
+            d = 1
+        elif ev.direction == Gdk.ScrollDirection.SMOOTH:
+            d = 1 if ev.delta_y > 0.2 else -1 if ev.delta_y < -0.2 else 0
+        if d:
+            self.on_select(core.MODEL_IDS[max(0, min(3, self.idx + d))])
+        return True
+
+    def on_tip(self, w, x, y, kb, tip):
+        i = self.hit(x)
+        if i is None:
+            return False
+        m = MODELS[i]
+        tip.set_text(f"{m['name']}  ({m['size']})")
+        return True
+
+    def on_draw(self, w, cr):
+        W, H = self.get_allocated_width(), self.get_allocated_height()
+        r = H / 2
+        line = (1, 1, 1) if self.app.style.dark else (0, 0, 0)
+        t = self.t if self.app.cfg["animations"] else 0.0
+        # track
+        cr.new_sub_path()
+        cr.arc(r, r, r, math.pi / 2, 3 * math.pi / 2)
+        cr.arc(W - r, r, r, -math.pi / 2, math.pi / 2)
+        cr.close_path()
+        cr.set_source_rgba(*line, 0.08)
+        cr.fill()
+        lefts = self.lefts()
+        p = self.cur_pos()
+        i0 = int(math.floor(p))
+        i1 = min(3, i0 + 1)
+        f = p - i0
+        x = lefts[i0] + (lefts[i1] - lefts[i0]) * f
+        wd = self.widths[i0] + (self.widths[i1] - self.widths[i0]) * f
+        col = model_colors(core.MODEL_IDS[round(p)], t)[0]
+        # the sliding highlight
+        hr = (H - 8) / 2
+        y0 = 4
+        cr.new_sub_path()
+        cr.arc(x + hr, y0 + hr, hr, math.pi / 2, 3 * math.pi / 2)
+        cr.arc(x + wd - hr, y0 + hr, hr, -math.pi / 2, math.pi / 2)
+        cr.close_path()
+        cr.set_source_rgba(*col, 0.25)
+        cr.fill_preserve()
+        cr.set_source_rgba(*col, 0.85)
+        cr.set_line_width(1.5)
+        cr.stroke()
+        for i, s in enumerate(self.labels):
+            lx = lefts[i] + (self.widths[i] - text_width(self, s, self.font)) / 2
+            sel = abs(p - i) < 0.5
+            if MODELS[i]["color"] == "rainbow":
+                draw_rainbow_text(cr, s, lx, H / 2, self.font, t, 1.0 if sel else 0.7)
+            else:
+                draw_text(cr, s, lx, H / 2, self.font, (*hex_rgb(MODELS[i]["color"]), 1.0 if sel else 0.7))
+
+
+class Dots(Gtk.DrawingArea, Ticker):
+    """Three bouncing dots while the AI has not said anything yet."""
+
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.set_size_request(44, 22)
+        self.connect("draw", self.on_draw)
+        self.start_ticks(30)
+
+    def on_draw(self, w, cr):
+        col = hex_rgb(self.app.style.pal["dim"])
+        for i in range(3):
+            y = 11 - 5 * max(0.0, math.sin(self.t * 6 - i * 0.7))
+            cr.arc(8 + i * 14, y, 3.4, 0, 2 * math.pi)
+            cr.set_source_rgba(*col, 0.9)
+            cr.fill()
+
+
+class Backdrop(Gtk.DrawingArea, Ticker):
+    """Slow, soft colour clouds behind the chat."""
+
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        self.connect("draw", self.on_draw)
+        self.start_ticks(15)
+
+    def on_draw(self, w, cr):
+        if self.app.cfg["background"] != "aurora":
+            return
+        W, H = self.get_allocated_width(), self.get_allocated_height()
+        t = self.t * 0.15 if self.app.cfg["animations"] else 0.0
+        acc = hex_rgb(self.app.cfg["accent"])
+        al = 0.16 if self.app.style.dark else 0.12
+        for k, d in enumerate((0.0, 0.12, -0.12)):
+            x = W * (0.5 + 0.38 * math.sin(t * (1 + 0.3 * k) + k * 2.1))
+            y = H * (0.5 + 0.34 * math.cos(t * (0.8 + 0.25 * k) + k * 1.3))
+            r = max(W, H) * 0.55
+            g = cairo.RadialGradient(x, y, 0, x, y, r)
+            g.add_color_stop_rgba(0, *shift_hue(acc, d), al)
+            g.add_color_stop_rgba(1, *shift_hue(acc, d), 0)
+            cr.set_source(g)
+            cr.paint()
+
+
+# ------------------------------------------------------------------------------------------------ messages
+def md_to_pango(t):
+    import re
+
+    t = GLib.markup_escape_text(t)
+    t = re.sub(r"(?m)^#{1,6}\s+(.+)$", r"<b><big>\1</big></b>", t)
+    t = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", t)
+    t = re.sub(r"(?<![\*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\*\w])", r"<i>\1</i>", t)
+    t = re.sub(r"`([^`\n]+)`", r'<span font_family="monospace" background="#80808040"> \1 </span>', t)
+    t = re.sub(r"(?m)^(\s*)[-*]\s+", r"\1• ", t)
+    return t
+
+
+def copy_text(s):
+    Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(s, -1)
+
+
+class MessageRow(Gtk.Revealer):
+    def __init__(self, app, role, text="", model="low", streaming=False, animate=True):
+        super().__init__()
+        self.app, self.role, self.text, self.model = app, role, text, model
+        self.kinds, self.widgets, self.labels = [], [], []
+        self.dots = None
+        cfg = app.cfg
+        anim = animate and cfg["animations"] and cfg["msg_anim"] != "none"
+        self.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP if cfg["msg_anim"] == "slide" else Gtk.RevealerTransitionType.CROSSFADE)
+        self.set_transition_duration(int(260 / max(0.2, cfg["anim_speed"])) if anim else 0)
+        row = Gtk.Box(spacing=10)
+        row.set_margin_start(24)
+        row.set_margin_end(24)
+        row.set_margin_top(7)
+        row.set_margin_bottom(7)
+        self.add(row)
+        self.bubble = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.bubble.get_style_context().add_class("bubble")
+        self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.bubble.pack_start(self.content, False, False, 0)
+        if role == "user":
+            self.bubble.get_style_context().add_class("bubble-user")
+            self.bubble.set_halign(Gtk.Align.END)
+            row.pack_end(self.bubble, False, False, 0)
+            self.avatar = None
+        else:
+            self.bubble.get_style_context().add_class("bubble-ai")
+            self.avatar = Orb(app, 34, animated=True)
+            self.avatar.model = model
+            self.avatar.set_valign(Gtk.Align.START)
+            self.avatar.set_state("thinking" if streaming else "idle")
+            col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            col.set_halign(Gtk.Align.START)
+            col.pack_start(self.bubble, False, False, 0)
+            self.meta = Gtk.Box(spacing=6)
+            tag = LevelTag(app, model, 11)
+            self.meta.pack_start(tag, False, False, 4)
+            name = Gtk.Label(label=model_by_id(model)["name"])
+            name.get_style_context().add_class("meta")
+            self.meta.pack_start(name, False, False, 0)
+            for key, fn in (("copy", lambda *_: copy_text(self.visible_text())), ("read", lambda *_: app.read_aloud(self.visible_text()))):
+                b = Gtk.Button(label=T(key))
+                b.get_style_context().add_class("tiny")
+                b.connect("clicked", fn)
+                self.meta.pack_start(b, False, False, 0)
+            col.pack_start(self.meta, False, False, 0)
+            row.pack_start(self.avatar, False, False, 0)
+            row.pack_start(col, False, False, 0)
+        self.show_all()
+        self.set_text(text, streaming)
+        self.set_reveal_child(False)
+        GLib.idle_add(lambda: self.set_reveal_child(True) and False)
+
+    def visible_text(self):
+        return "".join(p[1] for p in parse_segments(self.text) if p[0] != "think")
+
+    def set_text(self, text, streaming=False):
+        self.text = text
+        if self.role == "user":
+            segs = [("text", text, True)]
+        else:
+            segs = parse_segments(text)
+            if not self.app.cfg["show_thinking"]:
+                segs = [s for s in segs if s[0] != "think"]
+        if self.avatar is not None:
+            self.avatar.set_state(("speaking" if text else "thinking") if streaming else "idle")
+        kinds = [s[0] for s in segs]
+        want_dots = streaming and not any(s[1].strip() for s in segs if s[0] != "think")
+        if kinds != self.kinds:
+            for w in self.content.get_children():
+                self.content.remove(w)
+            self.widgets, self.labels, self.kinds, self.dots = [], [], kinds, None
+            for s in segs:
+                w = self.make(s)
+                self.widgets.append(w)
+                self.content.pack_start(w if not isinstance(w, tuple) else w[0], False, False, 0)
+        for s, w in zip(segs, self.widgets):
+            self.fill(s, w)
+        if want_dots and self.dots is None:
+            self.dots = Dots(self.app)
+            self.dots.set_halign(Gtk.Align.START)
+            self.content.pack_start(self.dots, False, False, 0)
+        elif not want_dots and self.dots is not None:
+            self.content.remove(self.dots)
+            self.dots = None
+        self.content.show_all()
+        self.app.fit_labels(self)
+
+    def make(self, seg):
+        kind = seg[0]
+        if kind == "code":
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            box.get_style_context().add_class("code-block")
+            head = Gtk.Box()
+            lang = Gtk.Label(xalign=0)
+            lang.get_style_context().add_class("code-lang")
+            head.pack_start(lang, True, True, 0)
+            b = Gtk.Button(label=T("copy"))
+            b.get_style_context().add_class("tiny")
+            head.pack_end(b, False, False, 0)
+            lab = Gtk.Label(xalign=0, selectable=True)
+            lab.set_line_wrap(True)
+            lab.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            box.pack_start(head, False, False, 0)
+            box.pack_start(lab, False, False, 0)
+            box.lab, box.langlab, box.btn = lab, lang, b
+            b.connect("clicked", lambda *_: copy_text(lab.get_text()))
+            self.labels.append(lab)
+            return box
+        if kind == "think":
+            ex = Gtk.Expander(label=T("thought"))
+            lab = Gtk.Label(xalign=0, selectable=True)
+            lab.get_style_context().add_class("think")
+            lab.set_line_wrap(True)
+            lab.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            ex.add(lab)
+            ex.lab, ex.closed_once = lab, False
+            ex.set_expanded(True)
+            self.labels.append(lab)
+            return ex
+        lab = Gtk.Label(xalign=0, selectable=True)
+        lab.set_line_wrap(True)
+        lab.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        lab.set_halign(Gtk.Align.START)
+        self.labels.append(lab)
+        return lab
+
+    def fill(self, seg, w):
+        kind = seg[0]
+        if kind == "code":
+            w.lab.set_text(seg[1])
+            w.langlab.set_text(seg[3] if len(seg) > 3 else "")
+        elif kind == "think":
+            w.lab.set_text(seg[1].strip())
+            if seg[2] and not w.closed_once:
+                w.closed_once = True
+                w.set_expanded(False)
+        else:
+            if self.role == "user":
+                w.set_text(seg[1])
+            else:
+                w.set_markup(md_to_pango(seg[1]))
+
+
+# ------------------------------------------------------------------------------------------------ UI bridge (any thread -> GTK)
+class UiBridge:
+    def __init__(self, app):
+        self.app = app
+        self.lock = threading.Lock()
+        self.pending = None
+        self.scheduled = False
+
+    def confirm(self, title, text, yes):
+        ev, res = threading.Event(), [False]
+        GLib.idle_add(self.app.show_confirm, title, text, yes, res, ev)
+        ev.wait()
+        return res[0]
+
+    def progress(self, text, frac=None, line=None):
+        with self.lock:
+            p = self.pending or {"text": None, "frac": None, "lines": []}
+            if text is not None:
+                p["text"], p["frac"] = text, frac
+            if line:
+                p["lines"].append(line)
+            self.pending = p
+            if self.scheduled:
+                return
+            self.scheduled = True
+        GLib.timeout_add(120, self._flush)
+
+    def _flush(self):
+        with self.lock:
+            p, self.pending, self.scheduled = self.pending, None, False
+        if p:
+            self.app.banner_update(p["text"], p["frac"], p["lines"])
+        return False
+
+    def progress_done(self):
+        with self.lock:
+            self.pending = None
+        GLib.idle_add(self.app.banner_hide)
+
+    def note(self, text):
+        GLib.idle_add(self.app.toast, text)
+
+
+# ------------------------------------------------------------------------------------------------ settings window
+class SettingsWindow(Gtk.Window):
+    def __init__(self, app):
+        super().__init__(title=T("settings"), transient_for=app.win, modal=False)
+        self.app, self.cfg = app, app.cfg
+        self.set_default_size(560, 560)
+        self.get_style_context().add_class("settings")
+        nb = Gtk.Notebook()
+        self.add(nb)
+        nb.append_page(self.page_appearance(), Gtk.Label(label=T("s_appearance")))
+        nb.append_page(self.page_anim(), Gtk.Label(label=T("s_animations")))
+        nb.append_page(self.page_chat(), Gtk.Label(label=T("s_chat")))
+        nb.append_page(self.page_voice(), Gtk.Label(label=T("s_voice")))
+        nb.append_page(self.page_max(), Gtk.Label(label=T("s_max")))
+        self.show_all()
+
+    def grid(self):
+        g = Gtk.Grid(column_spacing=16, row_spacing=14, margin=22)
+        g.n = 0
+        return g
+
+    def row(self, g, label, widget, wide=False):
+        lab = Gtk.Label(label=label, xalign=0)
+        lab.set_line_wrap(True)
+        if wide:
+            g.attach(lab, 0, g.n, 2, 1)
+            g.attach(widget, 0, g.n + 1, 2, 1)
+            g.n += 2
+        else:
+            lab.set_hexpand(True)
+            widget.set_halign(Gtk.Align.END)
+            g.attach(lab, 0, g.n, 1, 1)
+            g.attach(widget, 1, g.n, 1, 1)
+            g.n += 1
+
+    def combo(self, key, items):
+        c = Gtk.ComboBoxText()
+        for v, label in items:
+            c.append(str(v), label)
+        c.set_active_id(str(self.cfg[key]))
+        c.connect("changed", lambda w: self.cfg.set(key, type(self.cfg[key])(w.get_active_id())) if not isinstance(self.cfg[key], bool) else None)
+        return c
+
+    def switch(self, key):
+        s = Gtk.Switch(active=self.cfg[key])
+        s.connect("notify::active", lambda w, _p: self.cfg.set(key, w.get_active()))
+        return s
+
+    def scale(self, key, lo, hi, step, digits=0):
+        s = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, step)
+        s.set_value(self.cfg[key])
+        s.set_digits(digits)
+        s.set_size_request(220, -1)
+        s.connect("value-changed", lambda w: self.cfg.set(key, round(w.get_value()) if digits == 0 else round(w.get_value(), digits)))
+        return s
+
+    def spin(self, key, lo, hi, step):
+        s = Gtk.SpinButton.new_with_range(lo, hi, step)
+        s.set_value(self.cfg[key])
+        s.connect("value-changed", lambda w: self.cfg.set(key, int(w.get_value())))
+        return s
+
+    def page_appearance(self):
+        g = self.grid()
+        self.row(g, T("s_theme"), self.combo("theme", [(k, T("t_" + k)) for k in THEMES]))
+        cb = Gtk.ColorButton.new_with_rgba(Gdk.RGBA(*hex_rgb(self.cfg["accent"]), 1))
+        cb.connect("color-set", lambda w: self.cfg.set("accent", to_hex((w.get_rgba().red, w.get_rgba().green, w.get_rgba().blue))))
+        self.row(g, T("s_accent"), cb)
+        self.row(g, T("s_font"), self.scale("font_size", 11, 22, 1))
+        self.row(g, T("s_radius"), self.scale("radius", 4, 32, 1))
+        self.row(g, T("s_bg"), self.combo("background", [("aurora", T("s_aurora")), ("plain", T("s_plain"))]))
+        self.row(g, T("s_orb"), self.combo("orb", [("blob", T("s_blob")), ("rings", T("s_rings")), ("spark", T("s_spark"))]))
+        return g
+
+    def page_anim(self):
+        g = self.grid()
+        self.row(g, T("s_anim_on"), self.switch("animations"))
+        self.row(g, T("s_anim_speed"), self.scale("anim_speed", 0.3, 2.5, 0.1, 1))
+        self.row(g, T("s_msg_anim"), self.combo("msg_anim", [("slide", T("s_slide")), ("fade", T("s_fade")), ("none", T("s_none"))]))
+        self.row(g, T("s_smooth"), self.switch("smooth_scroll"))
+        return g
+
+    def page_chat(self):
+        g = self.grid()
+        tv = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD, left_margin=8, right_margin=8, top_margin=6, bottom_margin=6)
+        tv.get_buffer().set_text(self.cfg["system_prompt"])
+        tv.get_buffer().connect("changed", lambda b: self.cfg.set("system_prompt", b.get_text(b.get_start_iter(), b.get_end_iter(), False)))
+        sw = Gtk.ScrolledWindow(shadow_type=Gtk.ShadowType.IN, min_content_height=110)
+        sw.add(tv)
+        self.row(g, T("s_system"), sw, wide=True)
+        self.row(g, T("s_temp"), self.scale("temperature", 0, 1.5, 0.05, 2))
+        self.row(g, T("s_tokens"), self.spin("max_tokens", 64, 8192, 64))
+        self.row(g, T("s_think"), self.switch("show_thinking"))
+        self.row(g, T("s_enter"), self.switch("enter_sends"))
+        return g
+
+    def page_voice(self):
+        g = self.grid()
+        self.row(g, T("s_tts"), self.switch("tts"))
+        self.row(g, T("s_autospeak"), self.switch("auto_speak"))
+        self.row(g, T("s_vlang"), self.combo("voice_lang", [("auto", T("s_auto")), ("en", "English"), ("es", "Español"), ("it", "Italiano")]))
+        pc = Gtk.ComboBoxText()
+        for pid in core.VOICE_PRESETS:
+            pc.append(pid, T("p_" + pid))
+        pc.set_active_id(self.cfg["voice_preset"])
+        self.row(g, T("s_preset"), pc)
+        self.vscales = {}
+        for key, label, lo, hi, step in (("voice_speed", "s_vspeed", 0.5, 1.8, 0.05), ("voice_pitch", "s_vpitch", 0.6, 1.6, 0.02),
+                                         ("voice_volume", "s_vvol", 0.2, 1.5, 0.05), ("voice_var", "s_vvar", 0.0, 1.6, 0.05)):
+            sc = self.scale(key, lo, hi, step, 2)
+            self.vscales[key] = sc
+            self.row(g, T(label), sc)
+        fx = self.combo("voice_fx", [("none", T("fx_none")), ("robot", T("fx_robot")), ("echo", T("fx_echo"))])
+        self.vscales["voice_fx"] = fx
+        self.row(g, T("s_vfx"), fx)
+
+        def preset_changed(w):
+            pid = w.get_active_id()
+            self.cfg.set("voice_preset", pid)
+            for k, v in core.preset_values(pid).items():  # a preset sets the sliders; touch them afterwards to make it yours
+                if k == "voice_fx":
+                    self.vscales[k].set_active_id(v)
+                else:
+                    self.vscales[k].set_value(v)
+                self.cfg.set(k, v)
+        pc.connect("changed", preset_changed)
+        test = Gtk.Button(label="▶  " + T("s_test"))
+        test.get_style_context().add_class("primary")
+        test.connect("clicked", lambda *_: self.app.read_aloud(T("test_text")))
+        self.row(g, "", test)
+        self.row(g, T("s_stt"), self.combo("stt_size", [("tiny", "Tiny"), ("base", "Base"), ("small", "Small"), ("medium", "Medium")]))
+        return g
+
+    def page_max(self):
+        g = self.grid()
+        self.row(g, T("s_comp"), self.combo("compression", [("4bit", "4-bit"), ("8bit", "8-bit"), ("none", T("s_none"))]))
+        self.row(g, T("s_tokens_max"), self.spin("max_tokens_max", 16, 2048, 16))
+        self.row(g, T("s_delorig"), self.switch("delete_original"))
+        return g
+
+
+# ------------------------------------------------------------------------------------------------ the app
+class App:
+    def __init__(self, args):
+        GLib.set_prgname("asus-dial-ai")
+        GLib.set_application_name(T("app"))
+        self.cfg = core.Config()
+        if args.model in core.MODEL_IDS:
+            self.cfg.data["model"] = args.model
+        self.style = Style(self.cfg)
+        self.store = core.ChatStore()
+        self.ui = UiBridge(self)
+        self.engine = core.Engine(self.cfg, self.ui)
+        self.voice = None
+        self.chat = self.store.new()
+        self.rows, self.busy, self.stick = [], False, True
+        self.buf, self.buf_lock, self.ai_row = "", threading.Lock(), None
+        self.spoken_upto, self.speak_q, self.gen_done = 0, queue.Queue(), threading.Event()
+        self.voice_on = False
+        self.ready = set()
+        self.cfg.listeners.append(self.on_config)
+        self.build()
+        self.refresh_chats()
+        self.set_model(self.cfg["model"], quiet=True)
+        if not args.screenshot:
+            self.listen_socket()
+        if args.voice:
+            GLib.idle_add(self.toggle_voice)
+        if args.screenshot:
+            GLib.timeout_add(int(os.environ.get("ADAI_SHOT_MS", 2600)), self.screenshot, args.screenshot)
+
+    # ----- window
+    def build(self):
+        c = self.cfg
+        w = self.win = Gtk.Window(title=T("app"))
+        w.set_default_size(c["win_w"], c["win_h"])
+        w.set_icon_name(ICON)
+        w.get_style_context().add_class("adai")
+        w.set_visual(w.get_screen().get_rgba_visual())
+        w.connect("delete-event", self.on_close)
+        w.connect("key-press-event", self.on_key)
+        hb = Gtk.HeaderBar(show_close_button=True)
+        w.set_titlebar(hb)
+        self.side_btn = Gtk.ToggleButton(label="☰", active=c["sidebar"])
+        self.side_btn.get_style_context().add_class("flat")
+        self.side_btn.connect("toggled", lambda b: self.sidebar.set_reveal_child(b.get_active()) or self.cfg.set("sidebar", b.get_active()))
+        hb.pack_start(self.side_btn)
+        self.switcher = ModelSwitcher(self, self.set_model)
+        hb.set_custom_title(self.switcher)
+        sb = Gtk.Button(image=Gtk.Image.new_from_icon_name("preferences-system-symbolic", Gtk.IconSize.BUTTON), tooltip_text=T("settings"))
+        sb.get_style_context().add_class("flat")
+        sb.connect("clicked", lambda *_: SettingsWindow(self))
+        hb.pack_end(sb)
+        mb = Gtk.Button(image=Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic", Gtk.IconSize.BUTTON), tooltip_text=T("mic"))
+        mb.get_style_context().add_class("flat")
+        mb.connect("clicked", lambda *_: self.toggle_voice())
+        hb.pack_end(mb)
+
+        main = Gtk.Box()
+        w.add(main)
+        # sidebar
+        self.sidebar = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_RIGHT, transition_duration=220, reveal_child=c["sidebar"])
+        sbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        sbox.get_style_context().add_class("sidebar")
+        sbox.set_size_request(270, -1)
+        nb = Gtk.Button(label="＋  " + T("new_chat"))
+        nb.get_style_context().add_class("primary")
+        nb.set_margin_start(12)
+        nb.set_margin_end(12)
+        nb.set_margin_top(14)
+        nb.connect("clicked", lambda *_: self.new_chat())
+        sbox.pack_start(nb, False, False, 0)
+        self.search = Gtk.SearchEntry(placeholder_text=T("search"))
+        self.search.get_style_context().add_class("search")
+        self.search.connect("search-changed", lambda *_: self.refresh_chats())
+        sbox.pack_start(self.search, False, False, 0)
+        cap = Gtk.Label(label="CHATS", xalign=0, margin_start=20, margin_bottom=4)
+        cap.get_style_context().add_class("side-title")
+        sbox.pack_start(cap, False, False, 0)
+        sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.chat_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.chat_list.connect("row-activated", lambda lb, r: self.open_chat(r.cid))
+        sw.add(self.chat_list)
+        sbox.pack_start(sw, True, True, 0)
+        self.sidebar.add(sbox)
+        main.pack_start(self.sidebar, False, False, 0)
+
+        # chat area
+        ov = self.overlay = Gtk.Overlay()
+        main.pack_start(ov, True, True, 0)
+        ov.add(Backdrop(self))
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        ov.add_overlay(col)
+        self.scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.scroll.get_style_context().add_class("transparent")
+        self.msgs = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.msgs.set_valign(Gtk.Align.END)
+        vp = Gtk.Viewport()
+        vp.get_style_context().add_class("transparent")
+        vp.add(self.msgs)
+        self.scroll.add(vp)
+        adj = self.scroll.get_vadjustment()
+        adj.connect("value-changed", self.on_scrolled)
+        adj.connect("changed", lambda a: self.stick and self.scroll_bottom(False))
+        self.scroll.connect("size-allocate", lambda *_: self.refit())
+        col.pack_start(self.scroll, True, True, 0)
+        # empty state
+        self.empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
+        self.empty_orb = Orb(self, 190)
+        self.empty.pack_start(self.empty_orb, False, False, 0)
+        h = Gtk.Label(label=T("hello"))
+        h.get_style_context().add_class("hello")
+        self.empty.pack_start(h, False, False, 0)
+        fb = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
+        for k in ("sug1", "sug2", "sug3"):
+            b = Gtk.Button(label=T(k))
+            b.get_style_context().add_class("chip")
+            b.get_child().set_line_wrap(True)
+            b.get_child().set_max_width_chars(22)
+            b.connect("clicked", lambda _b, k=k: self.send(T(k)))
+            fb.pack_start(b, False, False, 0)
+        self.empty.pack_start(fb, False, False, 0)
+        self.empty_rev = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.CROSSFADE, transition_duration=300, reveal_child=True)
+        self.empty_rev.add(self.empty)
+        ov.add_overlay(self.empty_rev)
+        ov.set_overlay_pass_through(self.empty_rev, True)
+        # composer
+        cbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=24, margin_end=24, margin_bottom=14, margin_top=6)
+        comp = Gtk.Box(spacing=8)
+        comp.get_style_context().add_class("composer")
+        self.input = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=10, bottom_margin=10)
+        self.input.connect("key-press-event", self.on_input_key)
+        self.input.connect("focus-in-event", lambda *_: comp.get_style_context().add_class("focused") or False)
+        self.input.connect("focus-out-event", lambda *_: comp.get_style_context().remove_class("focused") or False)
+        self.input.get_buffer().connect("changed", self.on_input_changed)
+        isw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_height=True, max_content_height=170)
+        isw.add(self.input)
+        comp.pack_start(isw, True, True, 0)
+        self.ph = Gtk.Label(label=T("placeholder"), xalign=0)
+        self.ph.get_style_context().add_class("hint")
+        mic = Gtk.Button(image=Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic", Gtk.IconSize.LARGE_TOOLBAR), tooltip_text=T("mic"))
+        mic.get_style_context().add_class("iconbtn")
+        mic.set_valign(Gtk.Align.END)
+        mic.connect("clicked", lambda *_: self.toggle_voice())
+        comp.pack_start(mic, False, False, 0)
+        self.speak_btn = Gtk.ToggleButton(image=Gtk.Image.new_from_icon_name("audio-volume-high-symbolic", Gtk.IconSize.LARGE_TOOLBAR),
+                                          tooltip_text=T("speak_tip"), active=self.cfg["auto_speak"])
+        self.speak_btn.get_style_context().add_class("iconbtn")
+        self.speak_btn.set_valign(Gtk.Align.END)
+        self.speak_btn.connect("toggled", lambda b: self.cfg.set("auto_speak", b.get_active()))
+        comp.pack_start(self.speak_btn, False, False, 0)
+        self.send_btn = Gtk.Button(image=Gtk.Image.new_from_icon_name("go-up-symbolic", Gtk.IconSize.LARGE_TOOLBAR))
+        self.send_btn.get_style_context().add_class("sendbtn")
+        self.send_btn.set_valign(Gtk.Align.END)
+        self.send_btn.connect("clicked", lambda *_: self.on_send_clicked())
+        comp.pack_start(self.send_btn, False, False, 0)
+        cin = Gtk.Overlay()
+        cin.add(comp)
+        self.ph.set_margin_start(18)
+        self.ph.set_halign(Gtk.Align.START)
+        self.ph.set_valign(Gtk.Align.CENTER)
+        cin.add_overlay(self.ph)
+        cin.set_overlay_pass_through(self.ph, True)
+        cbox.pack_start(cin, False, False, 0)
+        self.hint = Gtk.Label(xalign=0.5)
+        self.hint.get_style_context().add_class("hint")
+        self.hint.set_line_wrap(True)
+        cbox.pack_start(self.hint, False, False, 0)
+        col.pack_start(cbox, False, False, 0)
+        # banner (installs / downloads)
+        self.banner = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN, transition_duration=250, halign=Gtk.Align.CENTER, valign=Gtk.Align.START)
+        bb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=14)
+        bb.get_style_context().add_class("banner")
+        bb.set_size_request(520, -1)
+        self.banner_label = Gtk.Label(xalign=0)
+        self.banner_label.set_line_wrap(True)
+        self.banner_bar = Gtk.ProgressBar()
+        self.banner_log = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END)
+        self.banner_log.get_style_context().add_class("hint")
+        cb = Gtk.Button(label=T("cancel"))
+        cb.get_style_context().add_class("tiny")
+        cb.connect("clicked", lambda *_: (self.engine.cancel.set(), self.voice and self.voice.cancel.set()))
+        top = Gtk.Box(spacing=8)
+        top.pack_start(self.banner_label, True, True, 0)
+        top.pack_end(cb, False, False, 0)
+        bb.pack_start(top, False, False, 0)
+        bb.pack_start(self.banner_bar, False, False, 0)
+        bb.pack_start(self.banner_log, False, False, 0)
+        self.banner.add(bb)
+        ov.add_overlay(self.banner)
+        # toast
+        self.toast_rev = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.CROSSFADE, halign=Gtk.Align.CENTER, valign=Gtk.Align.END, margin_bottom=110)
+        self.toast_label = Gtk.Label()
+        self.toast_label.get_style_context().add_class("toast")
+        self.toast_rev.add(self.toast_label)
+        ov.add_overlay(self.toast_rev)
+        ov.set_overlay_pass_through(self.toast_rev, True)
+        # voice mode
+        self.voice_rev = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.CROSSFADE, transition_duration=350)
+        vb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, valign=Gtk.Align.CENTER, halign=Gtk.Align.FILL)
+        vb.get_style_context().add_class("voice-bg")
+        ev = Gtk.EventBox(halign=Gtk.Align.CENTER)
+        self.voice_orb = Orb(self, 340)
+        ev.add(self.voice_orb)
+        ev.connect("button-press-event", lambda *_: self.barge_in())
+        vb.pack_start(ev, False, False, 0)
+        self.voice_state = Gtk.Label()
+        self.voice_state.get_style_context().add_class("voice-state")
+        vb.pack_start(self.voice_state, False, False, 0)
+        self.voice_text = Gtk.Label(wrap=True, max_width_chars=60, justify=Gtk.Justification.CENTER)
+        self.voice_text.get_style_context().add_class("voice-text")
+        vb.pack_start(self.voice_text, False, False, 0)
+        vh = Gtk.Label(label=T("voice_hint") + "\n" + T("voice_nothink"), justify=Gtk.Justification.CENTER)
+        vh.get_style_context().add_class("hint")
+        vb.pack_start(vh, False, False, 0)
+        close = Gtk.Button(label="✕  " + T("voice_off"))
+        close.get_style_context().add_class("chip")
+        close.set_halign(Gtk.Align.CENTER)
+        close.set_margin_top(14)
+        close.connect("clicked", lambda *_: self.toggle_voice())
+        vb.pack_start(close, False, False, 0)
+        evb = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        evb.get_style_context().add_class("voice-bg")
+        evb.pack_start(vb, True, True, 0)
+        self.voice_rev.add(evb)
+        ov.add_overlay(self.voice_rev)
+        ov.set_overlay_pass_through(self.voice_rev, True)
+        ov.reorder_overlay(self.banner, -1)  # installs and downloads stay visible above the voice screen
+        ov.reorder_overlay(self.toast_rev, -1)
+        self.update_placeholder()
+        w.show_all()
+        self.voice_rev.hide()
+        self.input.grab_focus()
+        self.voice_rev.set_reveal_child(False)
+
+    # ----- helpers
+    def on_config(self, key):
+        if key in ("theme", "accent", "font_size", "radius"):
+            self.style.apply()
+        if key in ("font_size", "radius"):
+            self.refit()
+        if key == "auto_speak":
+            if self.speak_btn.get_active() != self.cfg["auto_speak"]:
+                self.speak_btn.set_active(self.cfg["auto_speak"])
+            if not self.cfg["auto_speak"] and not self.voice_on:
+                self.barge_in(stop_gen=False)
+        if key == "orb" or key == "theme":
+            self.queue_all()
+        if key == "sidebar":
+            return
+
+    def queue_all(self):
+        self.win.queue_draw()
+
+    def screenshot(self, path):
+        W, H = self.win.get_allocated_width(), self.win.get_allocated_height()
+        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, W, H)
+        cr = cairo.Context(surf)
+        cr.set_source_rgb(*hex_rgb(self.style.pal["bg"]))
+        cr.paint()
+        self.win.draw(cr)
+        surf.write_to_png(path)
+        Gtk.main_quit()
+        return False
+
+    def on_key(self, w, ev):
+        ctrl = ev.state & Gdk.ModifierType.CONTROL_MASK
+        if ctrl and ev.keyval == Gdk.KEY_n:
+            self.new_chat()
+            return True
+        if ev.keyval == Gdk.KEY_Escape and self.voice_on:
+            self.toggle_voice()
+            return True
+        return False
+
+    def on_close(self, *_):
+        w, h = self.win.get_size()
+        self.cfg.set("win_w", w)
+        self.cfg.set("win_h", h)
+        self.voice_stop()
+        self.engine.shutdown()
+        try:
+            os.remove(SOCK)
+        except OSError:
+            pass
+        Gtk.main_quit()
+        return False
+
+    def toast(self, text):
+        self.toast_label.set_text(text)
+        self.toast_rev.set_reveal_child(True)
+        self._toast_id = getattr(self, "_toast_id", 0) + 1
+        mine = self._toast_id
+        GLib.timeout_add(2200, lambda: (self.toast_rev.set_reveal_child(False) if mine == self._toast_id else None) and False)
+
+    def show_confirm(self, title, text, yes, res, ev):
+        d = Gtk.MessageDialog(transient_for=self.win, modal=True, message_type=Gtk.MessageType.QUESTION, text=title, secondary_text=text)
+        d.add_button(T("cancel"), Gtk.ResponseType.CANCEL)
+        d.add_button(yes, Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        d.set_default_response(Gtk.ResponseType.OK)
+        res[0] = d.run() == Gtk.ResponseType.OK
+        d.destroy()
+        ev.set()
+        return False
+
+    def banner_update(self, text, frac, lines):
+        if text is None and not self.banner.get_reveal_child():
+            return False
+        if text is not None:
+            self.banner_label.set_text(text)
+            if frac is None:
+                self.banner_bar.pulse()
+                self._pulse = True
+            else:
+                self._pulse = False
+                self.banner_bar.set_fraction(frac)
+        if lines:
+            self.banner_log.set_text(lines[-1][-110:])
+        if not self.banner.get_reveal_child():
+            self.banner.set_reveal_child(True)
+            GLib.timeout_add(120, self._pulse_bar)
+        return False
+
+    def _pulse_bar(self):
+        if not self.banner.get_reveal_child():
+            return False
+        if getattr(self, "_pulse", False):
+            self.banner_bar.pulse()
+        return True
+
+    def banner_hide(self):
+        self.banner.set_reveal_child(False)
+        return False
+
+    # ----- model
+    def set_model(self, mid, quiet=False, present=False):
+        if mid not in core.MODEL_IDS:
+            return
+        self.cfg.set("model", mid)
+        self.switcher.set_active(core.MODEL_IDS.index(mid), animate=not quiet)
+        for o in (self.empty_orb, self.voice_orb):
+            o.model = mid
+        m = model_by_id(mid)
+        self.hint.set_text(T("need_slow") if m["backend"] == "airllm" else "")
+        self.hint.get_style_context().remove_class("hint")
+        self.hint.get_style_context().add_class("warn" if m["backend"] == "airllm" else "hint")
+        if not quiet:
+            self.toast(T("now_running", name=m["name"]))
+        if present:
+            self.win.present()
+
+    # ----- chats
+    def refresh_chats(self):
+        for r in self.chat_list.get_children():
+            self.chat_list.remove(r)
+        q = self.search.get_text().lower()
+        for c in self.store.list():
+            if q and q not in c["title"].lower():
+                continue
+            row = Gtk.ListBoxRow()
+            row.cid = c["id"]
+            box = Gtk.Box(spacing=4)
+            box.get_style_context().add_class("chat-item")
+            if c["id"] == self.chat["id"]:
+                box.get_style_context().add_class("current")
+            lab = Gtk.Label(label=c["title"], xalign=0, ellipsize=Pango.EllipsizeMode.END)
+            box.pack_start(lab, True, True, 0)
+            x = Gtk.Button(label="✕", tooltip_text=T("delete"))
+            x.get_style_context().add_class("x-btn")
+            x.connect("clicked", lambda _b, cid=c["id"]: self.delete_chat(cid))
+            box.pack_end(x, False, False, 0)
+            row.add(box)
+            self.chat_list.add(row)
+        self.chat_list.show_all()
+
+    def clear_rows(self):
+        for r in self.rows:
+            self.msgs.remove(r)
+        self.rows = []
+
+    def new_chat(self):
+        if self.busy:
+            return
+        self.store.save(self.chat)
+        self.chat = self.store.new()
+        self.clear_rows()
+        self.empty_rev.set_reveal_child(True)
+        self.refresh_chats()
+        self.input.grab_focus()
+
+    def open_chat(self, cid):
+        if self.busy or cid == self.chat["id"]:
+            return
+        try:
+            self.chat = self.store.load(cid)
+        except (OSError, ValueError):
+            return
+        self.clear_rows()
+        for m in self.chat["messages"]:
+            self.add_row(m["role"], m["content"], m.get("model", "low"), animate=False)
+        self.empty_rev.set_reveal_child(not self.chat["messages"])
+        self.stick = True
+        self.refresh_chats()
+
+    def delete_chat(self, cid):
+        self.store.delete(cid)
+        if cid == self.chat["id"]:
+            self.chat = self.store.new()
+            self.clear_rows()
+            self.empty_rev.set_reveal_child(True)
+        self.refresh_chats()
+
+    def add_row(self, role, text, model, streaming=False, animate=True):
+        r = MessageRow(self, role, text, model, streaming, animate)
+        self.msgs.pack_start(r, False, False, 0)
+        self.rows.append(r)
+        self.empty_rev.set_reveal_child(False)
+        self.stick = True
+        return r
+
+    # ----- sizing and scrolling
+    def chars_fit(self):
+        W = self.scroll.get_allocated_width()
+        return max(20, min(150, int((W - 150) * 0.82 / (self.cfg["font_size"] * 0.58))))
+
+    def fit_labels(self, row):
+        n = self.chars_fit()
+        for lab in row.labels:
+            lab.set_max_width_chars(n)
+
+    def refit(self):
+        n = self.chars_fit()
+        for r in self.rows:
+            for lab in r.labels:
+                lab.set_max_width_chars(n)
+
+    def on_scrolled(self, adj):
+        if not getattr(self, "_auto", False):
+            self.stick = adj.get_upper() - (adj.get_value() + adj.get_page_size()) < 60
+
+    def scroll_bottom(self, animate=True):
+        adj = self.scroll.get_vadjustment()
+        target = max(0.0, adj.get_upper() - adj.get_page_size())
+        if not (animate and self.cfg["animations"] and self.cfg["smooth_scroll"]):
+            self._auto = True
+            adj.set_value(target)
+            self._auto = False
+            return
+        start, t0 = adj.get_value(), time.time()
+        dur = 0.25 / max(0.3, self.cfg["anim_speed"])
+
+        def tick():
+            k = ease((time.time() - t0) / dur)
+            self._auto = True
+            adj.set_value(start + (max(0.0, adj.get_upper() - adj.get_page_size()) - start) * k)
+            self._auto = False
+            return k < 1.0
+
+        GLib.timeout_add(16, tick)
+
+    # ----- composing
+    def update_placeholder(self):
+        b = self.input.get_buffer()
+        self.ph.set_visible(b.get_char_count() == 0)
+
+    def on_input_changed(self, b):
+        self.update_placeholder()
+
+    def on_input_key(self, w, ev):
+        if ev.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            shift = ev.state & Gdk.ModifierType.SHIFT_MASK
+            if bool(shift) != bool(self.cfg["enter_sends"]):
+                self.on_send_clicked()
+                return True
+        return False
+
+    def on_send_clicked(self):
+        if self.busy:
+            self.engine.stop.set()
+            self.engine.cancel.set()
+            return
+        b = self.input.get_buffer()
+        text = b.get_text(b.get_start_iter(), b.get_end_iter(), False).strip()
+        if text:
+            b.set_text("")
+            self.send(text)
+
+    def set_busy(self, busy):
+        self.busy = busy
+        ctx = self.send_btn.get_style_context()
+        icon = "media-playback-stop-symbolic" if busy else "go-up-symbolic"
+        self.send_btn.set_image(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.LARGE_TOOLBAR))
+        (ctx.add_class if busy else ctx.remove_class)("stop")
+        self.send_btn.show_all()
+
+    def history(self):
+        out = []
+        for m in self.chat["messages"]:
+            c = m["content"]
+            if m["role"] == "assistant":
+                c = "".join(p[1] if p[0] != "code" else "```" + p[3] + "\n" + p[1] + "\n```" for p in parse_segments(c) if p[0] != "think")
+            if c.strip():
+                out.append({"role": m["role"], "content": c})
+        total, keep = 0, []
+        for m in reversed(out):
+            total += len(m["content"])
+            if total > 14000 and keep:
+                break
+            keep.append(m)
+        return list(reversed(keep))
+
+    def send(self, text, from_voice=False):
+        if self.busy:
+            return
+        m = model_by_id(self.cfg["model"])
+        self.chat["messages"].append({"role": "user", "content": text})
+        if not self.chat["title"]:
+            self.chat["title"] = text.replace("\n", " ")[:42]
+        self.add_row("user", text, m["id"])
+        self.ai_row = self.add_row("assistant", "", m["id"], streaming=True)
+        self.set_busy(True)
+        self.buf, self.spoken_upto = "", 0
+        self.gen_done.clear()
+        GLib.timeout_add(70, self.flush)
+        threading.Thread(target=self.generate, args=(m, self.history(), not self.voice_on), daemon=True).start()
+
+    def generate(self, m, hist, think):
+        err = None
+        try:
+            if m["id"] not in self.ready:
+                self.engine.ensure(m)
+                self.ready.add(m["id"])
+            self.engine.stream(m, hist, self.on_text, think=think)
+        except core.Cancelled:
+            pass
+        except Exception as e:  # noqa: BLE001
+            self.ready.discard(m["id"])
+            core.log(f"error: {e!r}")
+            err = f"{type(e).__name__}: {e}"
+        GLib.idle_add(self.finish, m, err)
+
+    def on_text(self, delta):
+        with self.buf_lock:
+            self.buf += delta
+
+    def flush(self):
+        with self.buf_lock:
+            text = self.buf
+        if self.ai_row is not None and text != self.ai_row.text:
+            self.ai_row.set_text(text, streaming=True)
+            if self.voice_on:
+                self.voice_text.set_text(core.speakable(text)[-220:])
+            if self.voice_on or self.cfg["auto_speak"]:
+                self.feed_speech(text, final=False)
+        return self.busy
+
+    def finish(self, m, err):
+        with self.buf_lock:
+            text = self.buf
+        if err:
+            text = (text + "\n\n" if text else "") + "⚠ " + err
+        row = self.ai_row
+        if row is not None:
+            row.set_text(text, streaming=False)
+        self.chat["messages"].append({"role": "assistant", "content": text, "model": m["id"]})
+        self.store.save(self.chat)
+        self.refresh_chats()
+        self.set_busy(False)
+        if (self.voice_on or self.cfg["auto_speak"]) and not err:
+            self.feed_speech(text, final=True)
+        self.gen_done.set()
+        self.ai_row = None
+        return False
+
+    # ----- voice
+    def read_aloud(self, text):
+        threading.Thread(target=self._read_aloud, args=(text,), daemon=True).start()
+
+    def _read_aloud(self, text):
+        try:
+            if self.voice is None:
+                self.voice = core.Voice(self.cfg, self.ui)
+            self.voice.cancel.clear()
+            self.voice.start()
+            self.voice.speak(core.speakable(text))
+        except Exception as e:  # noqa: BLE001
+            core.log(f"read aloud: {e!r}")
+            GLib.idle_add(self.toast, str(e)[:120])
+
+    def toggle_voice(self):
+        if self.voice_on:
+            self.voice_stop()
+            return False
+        self.voice_on = True
+        self.voice_rev.show()
+        self.overlay.set_overlay_pass_through(self.voice_rev, False)
+        self.voice_rev.set_reveal_child(True)
+        self.voice_orb.set_state("thinking")
+        self.voice_state.set_text(T("voice_loading"))
+        self.voice_text.set_text("")
+        if self.voice is None:
+            self.voice = core.Voice(self.cfg, self.ui)
+        self.voice.cancel.clear()
+        self.voice_orb.level_fn = lambda: self.voice.level if self.voice and self.voice_orb.state in ("listening", "speaking") else None
+        threading.Thread(target=self.voice_loop, daemon=True).start()
+        return False
+
+    def voice_stop(self):
+        self.voice_on = False
+        self.voice_rev.set_reveal_child(False)
+        self.overlay.set_overlay_pass_through(self.voice_rev, True)
+        GLib.timeout_add(450, lambda: (self.voice_rev.hide() if not self.voice_on else None) and False)
+        self.input.grab_focus()
+        if self.voice:
+            self.voice.cancel.set()
+            self.voice.stop_playing()
+        self.speak_q.put(None)
+
+    def barge_in(self, stop_gen=True):
+        if self.voice:
+            self.voice.stop_playing()
+        try:
+            while True:
+                self.speak_q.get_nowait()
+        except queue.Empty:
+            pass
+        if stop_gen:
+            self.engine.stop.set()
+
+    def set_vstate(self, st, text=None):
+        self.voice_orb.set_state(st)
+        self.voice_state.set_text({"listening": T("listening"), "thinking": T("thinking"), "speaking": T("speaking")}.get(st, "") if text is None else text)
+        return False
+
+    def feed_speech(self, text, final):
+        if not (self.cfg["tts"] if self.voice_on else self.cfg["auto_speak"]):
+            return
+        if not self.voice_on:
+            self.ensure_speaker()
+        vis = core.speakable(text)
+        if not final and any(s[0] == "think" and not s[2] for s in parse_segments(text)):
+            return
+        cut = len(vis) if final else core.sentence_cut(vis[self.spoken_upto:]) + self.spoken_upto
+        if cut > self.spoken_upto:
+            piece = vis[self.spoken_upto:cut].strip()
+            self.spoken_upto = cut
+            if piece:
+                self.speak_q.put(piece)
+
+    def ensure_speaker(self):
+        """Outside the voice mode a little thread reads the queued sentences aloud."""
+        if getattr(self, "_speaker", None) and self._speaker.is_alive():
+            return
+        self._speaker = threading.Thread(target=self._speaker_loop, daemon=True)
+        self._speaker.start()
+
+    def _speaker_loop(self):
+        try:
+            if self.voice is None:
+                self.voice = core.Voice(self.cfg, self.ui)
+            self.voice.cancel.clear()
+            self.voice.start()
+            while True:
+                if self.voice_on:  # the voice mode owns the queue while it is on
+                    return
+                try:
+                    piece = self.speak_q.get(timeout=0.5)
+                except queue.Empty:
+                    if not self.busy and not self.cfg["auto_speak"]:
+                        return
+                    continue
+                if piece:
+                    self.voice.speak(piece)
+        except core.Cancelled:
+            pass
+        except Exception as e:  # noqa: BLE001
+            core.log(f"speaker: {e!r}")
+            GLib.idle_add(self.toast, f"{T('error')}: {str(e)[:140]}")
+        finally:
+            self.ui.progress_done()
+
+    def voice_loop(self):
+        v = self.voice
+        try:
+            v.start()
+            while self.voice_on and not v.cancel.is_set():
+                GLib.idle_add(self.set_vstate, "listening")
+                wav = v.listen()
+                if not wav:
+                    continue
+                GLib.idle_add(self.set_vstate, "thinking")
+                text = v.transcribe(wav)
+                if len(text.strip()) < 2:
+                    continue
+                while self.busy:
+                    time.sleep(0.1)
+                try:
+                    while True:
+                        self.speak_q.get_nowait()
+                except queue.Empty:
+                    pass
+                GLib.idle_add(self.voice_text.set_text, text)
+                GLib.idle_add(self.send, text, True)
+                time.sleep(0.3)
+                while self.voice_on and not v.cancel.is_set():
+                    try:
+                        piece = self.speak_q.get(timeout=0.2)
+                    except queue.Empty:
+                        if self.gen_done.is_set() and self.speak_q.empty():
+                            break
+                        continue
+                    if piece is None:
+                        break
+                    GLib.idle_add(self.set_vstate, "speaking")
+                    v.speak(piece)
+                    GLib.idle_add(self.set_vstate, "thinking" if self.busy else "listening")
+        except core.Cancelled:
+            pass
+        except Exception as e:  # noqa: BLE001
+            core.log(f"voice: {e!r}")
+            GLib.idle_add(self.toast, f"{T('error')}: {str(e)[:140]}")
+            GLib.idle_add(self.voice_stop)
+        finally:
+            self.ui.progress_done()
+
+    # ----- the dial talks to us here
+    def listen_socket(self):
+        try:
+            os.remove(SOCK)
+        except OSError:
+            pass
+        self.srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.srv.bind(SOCK)
+        self.srv.listen(4)
+        self.srv.setblocking(False)
+        GLib.io_add_watch(self.srv.fileno(), GLib.IO_IN, self.on_conn)
+
+    def on_conn(self, fd, cond):
+        try:
+            conn, _ = self.srv.accept()
+            conn.settimeout(0.3)
+            data = conn.recv(256).decode(errors="ignore")
+            conn.sendall(b"ok\n")
+            conn.close()
+        except OSError:
+            return True
+        for line in data.splitlines():
+            cmd, _, arg = line.strip().partition(" ")
+            if cmd == "open":
+                self.set_model(arg, quiet=False, present=True)
+            elif cmd == "model":
+                self.set_model(arg)
+            elif cmd == "voice":
+                self.win.present()
+                if not self.voice_on:
+                    self.toggle_voice()
+        return True
+
+
+def send_to_running(cmd):
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        s.connect(SOCK)
+        s.sendall((cmd + "\n").encode())
+        s.recv(8)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+def main():
+    import argparse
+
+    p = argparse.ArgumentParser(description="ASUS Dial AI chat app")
+    p.add_argument("--model", default="", help="low | mid | high | max")
+    p.add_argument("--voice", action="store_true", help="start in voice mode")
+    p.add_argument("--screenshot", default="", help="save a picture of the window and quit (for testing)")
+    args = p.parse_args()
+    if not args.screenshot:
+        cmd = ("open " + args.model) if args.model else "open " + core.Config().data["model"]
+        if send_to_running(cmd):  # already open: just bring it forward
+            if args.voice:
+                send_to_running("voice")
+            return
+    App(args)
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

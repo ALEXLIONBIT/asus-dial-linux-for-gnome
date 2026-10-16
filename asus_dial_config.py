@@ -119,8 +119,20 @@ def animation_of(cfg):
     return an
 
 
+SENSITIVITY_DEFAULT, SENSITIVITY_MIN, SENSITIVITY_MAX = 2.5, 0.5, 6.0  # how many times faster than the original 1.0 the dial reacts
+
+
+def sensitivity(cfg):
+    """Dial sensitivity from the config, kept in range: 2 means half the turning is needed for each step."""
+    try:
+        return max(SENSITIVITY_MIN, min(SENSITIVITY_MAX, float(cfg.get("sensitivity", SENSITIVITY_DEFAULT))))
+    except (TypeError, ValueError):
+        return SENSITIVITY_DEFAULT
+
+
 DEFAULT_CONFIG = {
     "version": 1,
+    "sensitivity": SENSITIVITY_DEFAULT,
     "modes": {"disabled": [], "order": list(DEFAULT_ORDER)},
     "custom": [],  # {"id": "p", "name": "P", "icon": "⌨", "click": "p", "cw": "", "ccw": ""}
     "welcome": {"enabled": True, "character": "human", "color": "#4080ff", "rainbow": False, "image": "", "message": "", "name": ""},

@@ -994,6 +994,7 @@ class Dial:
             return 0
 
     def apply_config(self):
+        self.sens = acfg.sensitivity(self.cfg)
         _custom[:] = self.cfg["custom"]
         ids = [c["id"] for c in _custom]
         tools = []
@@ -1165,6 +1166,10 @@ class Dial:
         self.show_label(f"{ticon(self.tool)} {tname(self.tool)}")
 
     # --- rotation ---
+    def step_units(self, tool):
+        """Dial units of turning for one step of the tool: fewer with a higher sensitivity."""
+        return self.STEP.get(tool, 8) / self.sens
+
     def rotate(self, delta):
         now = GLib.get_monotonic_time() / 1e6
         if now - self.last_rot > 0.7:  # drop leftover partial steps after a pause
@@ -1176,9 +1181,10 @@ class Dial:
             return
         if self.menu_open:
             self.acc += delta
-            steps = int(self.acc / self.args.menu_step)
+            menu_step = self.args.menu_step / self.sens ** 0.6  # the menu follows the sensitivity more gently, so a detent does not skip items
+            steps = int(self.acc / menu_step)
             if steps:
-                self.acc -= steps * self.args.menu_step
+                self.acc -= steps * menu_step
                 self.overlay.sel = (self.overlay.sel - steps * self.sign) % len(self.overlay.items)
                 self.hold_moved = self.hold_moved or bool(self.last_btn)
                 self.overlay.show_for("menu", MENU_TIMEOUT_MS)
@@ -1206,7 +1212,7 @@ class Dial:
             self.rotate_power(delta, now)
             return
         self.acc += delta
-        step = self.STEP.get(tool, 8)
+        step = self.step_units(tool)
         steps = int(self.acc / step)
         if steps:
             self.acc -= steps * step
@@ -1214,7 +1220,7 @@ class Dial:
 
     def rotate_wheel(self, delta, tool):
         zoom = tool == ZOOM
-        self.wheel_acc += delta * (-self.sign if zoom else self.sign) * 120 / self.STEP[tool]
+        self.wheel_acc += delta * (-self.sign if zoom else self.sign) * 120 / self.step_units(tool)
         whole = int(self.wheel_acc)
         if not whole:
             return
@@ -1392,10 +1398,11 @@ class Dial:
 
     def rotate_magnifier(self, delta):
         self.acc += delta * -self.sign  # clockwise (default) = zoom in
-        steps = int(self.acc / self.STEP[ZOOM])
+        step = self.step_units(ZOOM)
+        steps = int(self.acc / step)
         if not steps:
             return
-        self.acc -= steps * self.STEP[ZOOM]
+        self.acc -= steps * step
         f = self.set_magnifier(self.get_magnifier() + steps * MAG_STEP)
         self.show_label(L("screen_zoom", f=f), (f - 1) / (MAG_MAX - 1))
 

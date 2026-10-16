@@ -44,6 +44,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 | 🤖 **AI** | picks the level: Low (MiniCPM5-2B), Medium (Llama 3.1 8B), High (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B with AirLLM, rainbow) | robot animation, then the **ASUS Dial AI** app opens with that model |
 | ✨ **Rickroll** | – | a divine light show, then your default browser opens the video full screen |
 | 🌐 **Language** | cycles English → Español → Italiano (default: English) | shows the current language |
+| 🎮 **GPU** | picks one of the PC's graphics cards (only shown if the PC has two or more) | the card and whether it is integrated or dedicated; click makes your apps use it |
 | ⏻ **Power off** | keep rotating clockwise to arm a 5-second shutdown countdown | – |
 
 **Context-aware modes.** *Tabs* and *Find* show up in the menu only while the active window is a browser (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Outside a browser they disappear, and if one of them was your chosen mode the dial behaves like *Scroll* until you are back in the browser.
@@ -53,6 +54,8 @@ The kernel creates no input device for the dial. This program reads the raw data
 **Rickroll.** Click the dial in this mode: the screen dims, golden rays and sparkles fill it with heavenly light, the lyrics appear and, in a blinding white flash, your default browser opens a famous 1987 music video and puts it **full screen** (it presses `K` if autoplay was blocked, then `F`, so it needs a YouTube page; press `Esc` to leave). Change the video by editing `RICKROLL_URL` at the top of the `asus-dial` file.
 
 **AI.** Rotate to pick the level (*Low* in green, *Medium* in yellow, *High* in red, *MAX* in rainbow letters), click to open the **ASUS Dial AI** app with that model. While the app is open, the dial's wheel keeps changing the model. Everything runs **locally** (the internet is only used for downloads): *Low* = MiniCPM5-2B (1.6 GB), *Medium* = Llama 3.1 8B (4.9 GB), *High* = DeepSeek-R1-Distill-Qwen-14B (9 GB, thinks before answering), **MAX** = Llama 3.3 70B run layer by layer with [AirLLM](https://github.com/lyogavin/airllm) (about 140 GB to download, then ~40 GB on disk, and **very slow**: it is meant to prove a 70B fits on a small GPU, not to chat fast). The app (`asus-dial-ai-app`) is a ChatGPT-like window: chats in a sidebar (saved in `~/.local/share/asus-dial-ai/chats`), answers that stream in, code blocks with a copy button, the model's reasoning in a collapsible box, a **voice mode** with a living orb (you talk, it answers aloud; click the orb to interrupt; the model's reasoning is switched off there for faster answers), **10 voice presets** (Aurora, Marco, Nova, Atlas, Pixel, Robo, Whisper, Narrator, Giant, Echo) with sliders for speed, pitch, volume and expressiveness, and a speaker button to hear the answers of the normal chat too and a **settings window** to change theme, accent colour, text size, roundness, background, orb style, animations, system prompt, creativity, voice language and more. **Nothing needs to be installed by hand**: the first time you use something, the app tells you what it needs and its size, asks once, and then installs it for your user only (no sudo): Ollama in `~/.local/ollama`; for MAX and voice a private Python 3.12 in `~/.local/share/asus-dial-ai/venv` with AirLLM, PyTorch, Whisper (speech to text) and Piper (text to speech), obtained with [uv](https://github.com/astral-sh/uv) (checksum verified). Without a working GPU driver everything runs on the CPU, which is much slower. On an NVIDIA hybrid laptop with the GPU switched off, `sudo prime-select on-demand` and a reboot enable it.
+
+**GPU.** Only on a PC with two or more graphics cards (for example an integrated Radeon/Intel plus a dedicated NVIDIA): with a single GPU the mode does not exist, neither in the menu nor in the manager. Rotate to go through the cards (each shows its name and whether it is *integrated* or *dedicated*, and **✓ in use** on the current one), click to make your apps render on that card. It works the way GNOME's *Launch using Discrete Graphics Card* does, with no root: the choice is saved in `~/.config/environment.d/60-asus-dial-gpu.conf` (the PRIME render-offload variables) and given right away to everything the session starts from now on; apps that are already open keep the card they started on, and **everything** (the launcher too) follows after you log in again. Choosing the system's default card removes the variables. It does not power a card off. From the terminal: `asus-dial-gpu list`, `asus-dial-gpu set 2`, and `asus-dial-gpu run <command>` to start one program on the chosen card at once.
 
 **Language.** Menu, messages and timer texts are in **English by default**. The *Language* mode switches between English, Spanish and Italian; the choice is saved in `~/.config/asus-dial.lang`. To add a language, add it to `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` and add a column to every entry of `STR` in the `asus-dial` file.
 
@@ -92,8 +95,8 @@ Then **log out and back in** (or reboot) so the `input` group takes effect.
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai asus-dial-ai-app asus-dial-manager asus-dial-welcome asus_dial_*.py ~/.local/bin/
-chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-ai-app ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome
+cp asus-dial asus-dial-ai asus-dial-ai-app asus-dial-gpu asus-dial-manager asus-dial-welcome asus_dial_*.py ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-ai-app ~/.local/bin/asus-dial-gpu ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome
 # launcher for the settings app (shows up in the applications menu)
 mkdir -p ~/.local/share/applications
 sed "s#^Exec=.*#Exec=$HOME/.local/bin/asus-dial-manager#" asus-dial-manager.desktop > ~/.local/share/applications/asus-dial-manager.desktop
@@ -163,7 +166,7 @@ Everything is at the top of the `asus-dial` file: mode names and icons (`NAMES`,
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
 rm -f ~/.local/share/applications/asus-dial-manager.desktop ~/.config/autostart/asus-dial-welcome.desktop
 rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
@@ -224,6 +227,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | 🤖 **IA** | elige el nivel: Bajo (MiniCPM5-2B), Medio (Llama 3.1 8B), Alto (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B con AirLLM, arcoíris) | animación de un robot y se abre la app **ASUS Dial AI** con ese modelo |
 | ✨ **Rickroll** | – | un espectáculo de luz divina y luego tu navegador predeterminado abre el vídeo a pantalla completa |
 | 🌐 **Idioma** | cambia entre English → Español → Italiano (por defecto: English) | muestra el idioma actual |
+| 🎮 **GPU** | elige una de las tarjetas gráficas del PC (solo aparece si el PC tiene dos o más) | la tarjeta y si es integrada o dedicada; el clic hace que tus apps la usen |
 | ⏻ **Apagar** | sigue girando en sentido horario para activar una cuenta atrás de 5 segundos | – |
 
 **Modos según el contexto.** *Pestañas* y *Buscar* aparecen en el menú solo cuando la ventana activa es un navegador (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Fuera del navegador desaparecen, y si uno de ellos era el modo elegido, la rueda se comporta como *Desplazar* hasta que vuelvas al navegador.
@@ -233,6 +237,8 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 **Rickroll.** Haz clic en la rueda en este modo: la pantalla se oscurece, rayos dorados y destellos la llenan de luz celestial, aparece la letra y, con un destello blanco cegador, tu navegador predeterminado abre un famoso videoclip de 1987 y lo pone a **pantalla completa** (pulsa `K` si la reproducción automática estaba bloqueada y luego `F`, así que necesita una página de YouTube; pulsa `Esc` para salir). Para cambiar el vídeo, edita `RICKROLL_URL` al principio del archivo `asus-dial`.
 
 **IA.** Gira para elegir el nivel (*Bajo* en verde, *Medio* en amarillo, *Alto* en rojo, *MAX* con letras arcoíris) y haz clic para abrir la app **ASUS Dial AI** con ese modelo; con la app abierta, la rueda sigue cambiando el modelo. Todo corre **en local** (internet solo para las descargas). **MAX** = Llama 3.3 70B ejecutado capa por capa con AirLLM (~140 GB de descarga, **muy lento**). La app es una ventana tipo ChatGPT con chats, **modo voz** con una esfera animada y ajustes para personalizarlo todo. **No hay que instalar nada a mano**: la primera vez la app te dice qué necesita y cuánto pesa, pregunta una vez e instala todo solo para tu usuario (sin sudo): Ollama, y para MAX y la voz un Python privado con AirLLM, PyTorch, Whisper y Piper.
+
+**GPU.** Solo en un PC con dos o más tarjetas gráficas (por ejemplo una Radeon/Intel integrada y una NVIDIA dedicada): con una sola GPU el modo no existe, ni en el menú ni en el gestor. Gira para recorrer las tarjetas (cada una muestra su nombre y si es *integrada* o *dedicada*, y **✓ en uso** en la actual) y haz clic para que tus apps rendericen en esa tarjeta. Funciona como *Ejecutar con la tarjeta gráfica dedicada* de GNOME, sin root: la elección se guarda en `~/.config/environment.d/60-asus-dial-gpu.conf` (las variables de PRIME render offload) y se da al instante a todo lo que la sesión inicie desde ese momento; las apps ya abiertas conservan su tarjeta y **todo** (también el lanzador) la usa al volver a iniciar sesión. Elegir la tarjeta predeterminada del sistema quita las variables. No apaga ninguna tarjeta. Desde el terminal: `asus-dial-gpu list`, `asus-dial-gpu set 2` y `asus-dial-gpu run <comando>` para iniciar un programa en la tarjeta elegida al momento.
 
 **Idioma.** El menú, los mensajes y los textos del temporizador están en **inglés por defecto**. El modo *Idioma* cambia entre inglés, español e italiano; la elección se guarda en `~/.config/asus-dial.lang`. Para añadir un idioma, añádelo a `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` y añade una columna a cada entrada de `STR` en el archivo `asus-dial`.
 
@@ -272,8 +278,8 @@ Después **cierra la sesión y vuelve a entrar** (o reinicia) para que se apliqu
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai asus-dial-ai-app asus-dial-manager asus-dial-welcome asus_dial_*.py ~/.local/bin/
-chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-ai-app ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome
+cp asus-dial asus-dial-ai asus-dial-ai-app asus-dial-gpu asus-dial-manager asus-dial-welcome asus_dial_*.py ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-ai-app ~/.local/bin/asus-dial-gpu ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome
 # launcher for the settings app (shows up in the applications menu)
 mkdir -p ~/.local/share/applications
 sed "s#^Exec=.*#Exec=$HOME/.local/bin/asus-dial-manager#" asus-dial-manager.desktop > ~/.local/share/applications/asus-dial-manager.desktop
@@ -343,7 +349,7 @@ Todo está al principio del archivo `asus-dial`: nombres e iconos de los modos (
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
 rm -f ~/.local/share/applications/asus-dial-manager.desktop ~/.config/autostart/asus-dial-welcome.desktop
 rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai
@@ -404,6 +410,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | 🤖 **AI** | sceglie il livello: Basso (MiniCPM5-2B), Medio (Llama 3.1 8B), Alto (DeepSeek-R1-Distill-Qwen-14B), **MAX** (Llama 3.3 70B con AirLLM, arcobaleno) | animazione di un robot, poi si apre l'app **ASUS Dial AI** con quel modello |
 | ✨ **Rickroll** | – | uno spettacolo di luce divina, poi il browser predefinito apre il video a schermo intero |
 | 🌐 **Lingua** | passa da English → Español → Italiano (predefinita: English) | mostra la lingua attuale |
+| 🎮 **GPU** | sceglie una delle schede grafiche del PC (compare solo se il PC ne ha due o più) | la scheda e se è integrata o dedicata; il clic fa usare quella alle tue app |
 | ⏻ **Arresta** | ruotando a lungo in senso orario spegne il PC dopo un conto alla rovescia di 5 secondi | – |
 
 **Modalità che dipendono dal contesto.** *Schede* e *Trova* compaiono nel menu solo quando la finestra attiva è un browser (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Fuori dal browser spariscono, e se erano la modalità scelta la manopola si comporta come *Scorri* finché non torni nel browser.
@@ -413,6 +420,8 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 **Rickroll.** Clicca la manopola in questa modalità: lo schermo si oscura, raggi dorati e scintille lo riempiono di luce divina, compare il testo della canzone e, con un lampo bianco accecante, il browser predefinito apre un famoso video musicale del 1987 e lo mette a **schermo intero** (preme `K` se la riproduzione automatica era bloccata, poi `F`, quindi serve una pagina di YouTube; premi `Esc` per uscire). Per cambiare il video modifica `RICKROLL_URL` in cima al file `asus-dial`.
 
 **AI.** Ruota per scegliere il livello (*Basso* in verde, *Medio* in giallo, *Alto* in rosso, *MAX* con le lettere arcobaleno) e clicca per aprire l'app **ASUS Dial AI** con quel modello; con l'app aperta la rotella continua a cambiare modello. Tutto gira **in locale** (internet serve solo per i download). *Basso* = MiniCPM5-2B (1,6 GB), *Medio* = Llama 3.1 8B (4,9 GB), *Alto* = DeepSeek-R1-Distill-Qwen-14B (9 GB, ragiona prima di rispondere), **MAX** = Llama 3.3 70B eseguito strato per strato con [AirLLM](https://github.com/lyogavin/airllm) (circa 140 GB da scaricare, poi ~40 GB su disco, e **lentissimo**). L'app (`asus-dial-ai-app`) è una finestra stile ChatGPT: chat nella barra laterale, risposte in streaming, blocchi di codice con tasto copia, il ragionamento del modello in un riquadro richiudibile, la **modalità vocale** con una sfera animata (parli tu, risponde a voce; clicca la sfera per interromperla; qui il ragionamento del modello è disattivato per rispondere prima), **10 voci preimpostate** (Aurora, Marco, Nova, Atlas, Pixel, Robo, Whisper, Narratore, Gigante, Eco) con cursori per velocità, tono, volume ed espressività, e un tasto altoparlante per sentire a voce anche le risposte della chat normale e le **impostazioni** per cambiare tema, colore, dimensione del testo, sfondo, sfera, animazioni, istruzioni di sistema, creatività, lingua della voce e altro. **Non devi installare niente a mano**: la prima volta che usi una cosa l'app ti dice cosa serve e quanto pesa, chiede una volta sola e poi installa tutto solo per il tuo utente (senza sudo): Ollama in `~/.local/ollama`; per MAX e la voce un Python 3.12 privato in `~/.local/share/asus-dial-ai/venv` con AirLLM, PyTorch, Whisper (voce→testo) e Piper (testo→voce), ottenuto con [uv](https://github.com/astral-sh/uv) (checksum verificato). Senza un driver GPU funzionante tutto gira sul processore, molto più lento. Su un portatile ibrido NVIDIA con la GPU spenta, `sudo prime-select on-demand` e un riavvio la attivano.
+
+**GPU.** Solo su un PC con due o più schede grafiche (per esempio una Radeon/Intel integrata e una NVIDIA dedicata): con una sola GPU la modalità non esiste, né nel menu né nel gestore. Ruota per scorrere le schede (ognuna mostra il nome e se è *integrata* o *dedicata*, e **✓ in uso** su quella attuale) e clicca per far usare quella scheda alle tue app. Funziona come *Avvia con la scheda grafica dedicata* di GNOME, senza root: la scelta è salvata in `~/.config/environment.d/60-asus-dial-gpu.conf` (le variabili del PRIME render offload) e data subito a tutto ciò che la sessione avvia da quel momento; le app già aperte tengono la scheda con cui sono partite e **tutto** (anche il lanciatore) la usa dopo un nuovo accesso. Scegliere la scheda predefinita del sistema toglie le variabili. Non spegne nessuna scheda. Da terminale: `asus-dial-gpu list`, `asus-dial-gpu set 2` e `asus-dial-gpu run <comando>` per avviare subito un programma sulla scheda scelta.
 
 **Lingua.** Menu, messaggi e testi del timer sono in **inglese per impostazione predefinita**. La modalità *Lingua* passa tra inglese, spagnolo e italiano; la scelta viene salvata in `~/.config/asus-dial.lang`. Per aggiungere una lingua, aggiungila a `LANGS`, `LANG_NAMES`, `NAMES_L`, `TIMER_MESSAGES_L` e aggiungi una colonna a ogni voce di `STR` nel file `asus-dial`.
 
@@ -452,8 +461,8 @@ Poi **esci e rientra dalla sessione** (o riavvia) perché il gruppo `input` veng
 
 ```bash
 mkdir -p ~/.local/bin
-cp asus-dial asus-dial-ai asus-dial-ai-app asus-dial-manager asus-dial-welcome asus_dial_*.py ~/.local/bin/
-chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-ai-app ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome
+cp asus-dial asus-dial-ai asus-dial-ai-app asus-dial-gpu asus-dial-manager asus-dial-welcome asus_dial_*.py ~/.local/bin/
+chmod +x ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-ai-app ~/.local/bin/asus-dial-gpu ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome
 # launcher for the settings app (shows up in the applications menu)
 mkdir -p ~/.local/share/applications
 sed "s#^Exec=.*#Exec=$HOME/.local/bin/asus-dial-manager#" asus-dial-manager.desktop > ~/.local/share/applications/asus-dial-manager.desktop
@@ -523,7 +532,7 @@ Tutto è in cima al file `asus-dial`: nomi e icone delle modalità (`NAMES`, `IC
 
 ```bash
 systemctl --user disable --now asus-dial
-rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py
+rm ~/.config/systemd/user/asus-dial.service ~/.local/bin/asus-dial ~/.local/bin/asus-dial-ai ~/.local/bin/asus-dial-manager ~/.local/bin/asus-dial-welcome ~/.local/bin/asus_dial_config.py ~/.local/bin/asus_dial_theme.py ~/.local/bin/asus_dial_characters.py ~/.local/bin/asus_dial_gpu.py ~/.local/bin/asus-dial-gpu ~/.config/environment.d/60-asus-dial-gpu.conf
 rm -f ~/.local/share/applications/asus-dial-manager.desktop ~/.config/autostart/asus-dial-welcome.desktop
 rm -rf ~/.config/asus-dial
 rm -f ~/.config/asus-dial.tool ~/.config/asus-dial.night.json ~/.config/asus-dial.lang ~/.config/asus-dial.ai

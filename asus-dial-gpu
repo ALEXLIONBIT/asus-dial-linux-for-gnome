@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""asus-dial-gpu: choose the GPU your apps render on (what the GPU mode of the dial does), from the terminal.
+
+  asus-dial-gpu list            the graphics cards of the PC (* = the one in use)
+  asus-dial-gpu set <n|name>    use that card (number from the list, or part of its name)
+  asus-dial-gpu run <command>   start one command on the chosen card right now
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import asus_dial_gpu as agpu
+
+
+def pick(arg):
+    cards = agpu.gpus()
+    if arg.isdigit() and 1 <= int(arg) <= len(cards):
+        return cards[int(arg) - 1]
+    hits = [g for g in cards if arg.lower() in g["name"].lower() or arg == g["id"]]
+    return hits[0] if len(hits) == 1 else None
+
+
+def main(argv):
+    cards = agpu.gpus()
+    if len(argv) < 2 or argv[1] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    cmd = argv[1]
+    cur = agpu.chosen()
+    if cmd == "list":
+        for i, g in enumerate(cards, 1):
+            kind = "integrated" if g["integrated"] else "dedicated"
+            print(f"{'*' if g is cur else ' '} {i}. {g['name']}  ({kind}{', system default' if g['default'] else ''})")
+        return 0
+    if cmd == "set" and len(argv) > 2:
+        g = pick(" ".join(argv[2:]))
+        if not g:
+            print("No single GPU matches that. See: asus-dial-gpu list", file=sys.stderr)
+            return 1
+        ok = agpu.apply(g)
+        print(f"Using {g['name']}. " + ("Apps you start from now on use it; log out and in for everything else." if ok else "Some settings could not be saved."))
+        return 0 if ok else 1
+    if cmd == "run" and len(argv) > 2:
+        try:
+            os.execvpe(argv[2], argv[2:], agpu.run_env(cur))
+        except OSError as e:
+            print(f"{argv[2]}: {e.strerror}", file=sys.stderr)
+            return 127
+    print(__doc__.strip(), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

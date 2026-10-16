@@ -6,6 +6,7 @@ character-*.png
 asus-dial.lang
 asus-dial.tool
 asus-dial.ai
+asus-dial.gpu
 .config/
 __pycache__/
 *.pyc

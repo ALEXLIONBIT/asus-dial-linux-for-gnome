@@ -22,6 +22,7 @@ import cairo
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import asus_dial_config as acfg  # config file, built-in mode names/icons, key names
+import asus_dial_gpu as agpu  # graphics cards and the GPU mode
 import asus_dial_theme as ath  # how the menu and the messages are drawn (themes)
 
 HID_ID = "0018:00000B05:00000220"
@@ -37,7 +38,7 @@ MENU_TIMEOUT_MS = 10000
 MENU_SIZE = 560
 HOLD_MS = 350
 PRESS_ROTATE_UNITS = 5  # total travel while pressed that opens the menu (net is noisy under pressure)
-SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE, RICK, AI = range(19)
+SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE, RICK, AI, GPU = range(20)
 ID_TO_TOOL = {i: n for n, i in enumerate(acfg.BUILTIN_IDS)}  # built-in mode id -> tool number (same order as above)
 CUSTOM_BASE = 1000  # custom modes are numbered CUSTOM_BASE + their index in the config
 ICONS, NAMES_L = acfg.ICONS, acfg.NAMES_L
@@ -89,6 +90,13 @@ STR = {
     "robot_hi": ("Hi! Waking up\n{name}…", "¡Hola! Despertando a\n{name}…", "Ciao! Sto svegliando\n{name}…"),
     "ai_no_terminal": ("🤖 Could not open the AI app", "🤖 No se pudo abrir la app de IA", "🤖 Impossibile aprire l'app AI"),
     "language": ("🌐 Language: {name}", "🌐 Idioma: {name}", "🌐 Lingua: {name}"),
+    "gpu_pick": ("🎮 {name}  ({kind})  (click to use)", "🎮 {name}  ({kind})  (clic para usar)", "🎮 {name}  ({kind})  (clic per usare)"),
+    "gpu_in_use": ("🎮 {name}  ({kind})  ✓ in use", "🎮 {name}  ({kind})  ✓ en uso", "🎮 {name}  ({kind})  ✓ in uso"),
+    "gpu_set": ("🎮 {name}: new apps use it (log in again for all)", "🎮 {name}: las apps nuevas la usan (reinicia sesión para todas)",
+                "🎮 {name}: le app nuove la usano (riaccedi per tutte)"),
+    "gpu_failed": ("🎮 Could not save the GPU choice", "🎮 No se pudo guardar la GPU", "🎮 Impossibile salvare la scelta della GPU"),
+    "gpu_integrated": ("integrated", "integrada", "integrata"),
+    "gpu_dedicated": ("dedicated", "dedicada", "dedicata"),
 }
 TIMER_MESSAGES_L = {
     "en": ("Timer expired!", "Completed!", "Finished!", "BOO!"),
@@ -925,7 +933,7 @@ class Overlay(Gtk.Window):
 class Dial:
     # dial units needed per step of each tool; one physical detent is ~8-10 units
     STEP = {SCROLL: 6, VOLUME: 8, BRIGHT: 8, ZOOM: 8, VIDEO: 8, TABS: 8, ARROWS: 8,
-            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8, RICK: 8, AI: 8}
+            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8, RICK: 8, AI: 8, GPU: 8}
 
     def __init__(self, args):
         self.args = args
@@ -965,6 +973,7 @@ class Dial:
         self.divine_win = AnimWindow()
         self.dice_win, self.tomato_win, self.chip_win = AnimWindow(), AnimWindow(), AnimWindow()
         self.dice_idx = DICE_SIDES.index(6)
+        self.gpu_idx = None  # card picked with the wheel in the GPU mode (None = the one in use)
         self.timer_minutes, self.timer_end, self.timer_id = 5, 0.0, 0
         self.alarm_proc = None
         self.speed = 1.0
@@ -1264,6 +1273,8 @@ class Dial:
             self.set_language((LANGS.index(_lang[0]) + d) % len(LANGS))
         elif tool == RICK:
             self.show_label(L("rick_hint"))
+        elif tool == GPU:
+            self.gpu_step(d)
         elif tool == AI:
             self.ai_level = max(0, min(len(AI_LEVELS) - 1, self.ai_level + d))
             self.save_ai_level()
@@ -1317,6 +1328,8 @@ class Dial:
             self.rick_start()
         elif tool == AI:
             self.ai_start()
+        elif tool == GPU:
+            self.gpu_click()
         elif tool == KEYLIGHT:
             self.keylight_last = self.keylight_last if self.get_keylight() == 0 else self.get_keylight()
             self.set_keylight(self.keylight_last if self.get_keylight() == 0 else 0)
@@ -1590,6 +1603,33 @@ class Dial:
         _lang[0] = LANGS[idx]
         save_lang()
         self.show_label(L("language", name=LANG_NAMES[_lang[0]]), idx / (len(LANGS) - 1))
+
+    # --- GPU: rotate to pick a graphics card, click to make the apps use it (see asus_dial_gpu.py) ---
+    def gpu_show(self):
+        cards = agpu.gpus()
+        if not cards:
+            return
+        self.gpu_idx = max(0, min(len(cards) - 1, self.gpu_idx if self.gpu_idx is not None else cards.index(agpu.chosen())))
+        g = cards[self.gpu_idx]
+        kind = L("gpu_integrated" if g["integrated"] else "gpu_dedicated")
+        key = "gpu_in_use" if g is agpu.chosen() else "gpu_pick"
+        self.show_label(L(key, name=g["name"], kind=kind), self.gpu_idx / max(1, len(cards) - 1))
+
+    def gpu_step(self, d):
+        cards = agpu.gpus(refresh=True)
+        cur = self.gpu_idx if self.gpu_idx is not None else cards.index(agpu.chosen())
+        self.gpu_idx = (cur + d) % len(cards)
+        self.gpu_show()
+
+    def gpu_click(self):
+        cards = agpu.gpus(refresh=True)
+        if self.gpu_idx is None or self.gpu_idx >= len(cards):
+            self.gpu_idx = cards.index(agpu.chosen())
+        g = cards[self.gpu_idx]
+        if agpu.apply(g):
+            self.show_label(L("gpu_set", name=g["name"]), self.gpu_idx / max(1, len(cards) - 1))
+        else:
+            self.show_label(L("gpu_failed"))
 
     # --- keyboard backlight ---
     def get_keylight(self):

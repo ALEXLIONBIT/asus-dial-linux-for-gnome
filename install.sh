@@ -5,8 +5,8 @@ set -eu
 cd "$(dirname "$(readlink -f "$0")")"
 BIN="$HOME/.local/bin"; APPS="$HOME/.local/share/applications"; ICONS="$HOME/.local/share/icons/hicolor/scalable/apps"
 mkdir -p "$BIN" "$APPS" "$ICONS" "$HOME/.config/autostart" "$HOME/.config/systemd/user"
-cp asus-dial asus-dial-ai asus-dial-ai-app asus-dial-manager asus-dial-welcome asus_dial_*.py "$BIN/"
-chmod +x "$BIN"/asus-dial "$BIN"/asus-dial-ai "$BIN"/asus-dial-ai-app "$BIN"/asus-dial-manager "$BIN"/asus-dial-welcome
+cp asus-dial asus-dial-ai asus-dial-ai-app asus-dial-gpu asus-dial-manager asus-dial-welcome asus_dial_*.py "$BIN/"
+chmod +x "$BIN"/asus-dial "$BIN"/asus-dial-ai "$BIN"/asus-dial-ai-app "$BIN"/asus-dial-gpu "$BIN"/asus-dial-manager "$BIN"/asus-dial-welcome
 ln -sf "$BIN/asus-dial-manager" "$BIN/dial"
 cp icons/*.svg "$ICONS/"; gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 sed "s#^Exec=.*#Exec=$BIN/asus-dial-manager#" asus-dial-manager.desktop > "$APPS/asus-dial-manager.desktop"

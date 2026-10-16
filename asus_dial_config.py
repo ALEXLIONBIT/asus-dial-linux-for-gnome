@@ -8,6 +8,8 @@ import json
 import os
 import re
 
+import asus_dial_gpu as agpu
+
 CONFIG_DIR = os.path.expanduser("~/.config/asus-dial")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 LANG_FILE = os.path.expanduser("~/.config/asus-dial.lang")
@@ -16,19 +18,19 @@ LANG_NAMES = {"en": "English", "es": "Español", "it": "Italiano"}
 
 # Built-in modes. The position in these lists is the tool number used inside the driver.
 BUILTIN_IDS = ["scroll", "volume", "brightness", "zoom", "video", "tabs", "arrows", "house", "power",
-               "dice", "timer", "speed", "night", "windows", "find", "keylight", "language", "rick", "ai"]
-ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨", "🌐", "✨", "🤖"]
+               "dice", "timer", "speed", "night", "windows", "find", "keylight", "language", "rick", "ai", "gpu"]
+ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨", "🌐", "✨", "🤖", "🎮"]
 NAMES_L = {
     "en": ["Scroll", "Volume", "Brightness", "Zoom", "Video", "Tabs", "Arrows", "House", "Power off",
-           "Dice", "Timer", "Speed", "Light", "Windows", "Find", "Keyboard", "Language", "Rickroll", "AI"],
+           "Dice", "Timer", "Speed", "Light", "Windows", "Find", "Keyboard", "Language", "Rickroll", "AI", "GPU"],
     "es": ["Desplazar", "Volumen", "Brillo", "Zoom", "Vídeo", "Pestañas", "Flechas", "Casa", "Apagar",
-           "Dado", "Temporiz.", "Velocidad", "Luz", "Ventanas", "Buscar", "Teclado", "Idioma", "Rickroll", "IA"],
+           "Dado", "Temporiz.", "Velocidad", "Luz", "Ventanas", "Buscar", "Teclado", "Idioma", "Rickroll", "IA", "GPU"],
     "it": ["Scorri", "Volume", "Luminosità", "Zoom", "Video", "Schede", "Frecce", "Casa", "Arresta",
-           "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera", "Lingua", "Rickroll", "AI"],
+           "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera", "Lingua", "Rickroll", "AI", "GPU"],
 }
 # default order of the radial menu
 DEFAULT_ORDER = ["scroll", "volume", "brightness", "keylight", "night", "zoom", "video", "speed", "timer", "ai",
-                 "tabs", "find", "windows", "arrows", "dice", "house", "rick", "language", "power"]
+                 "tabs", "find", "windows", "arrows", "dice", "house", "rick", "language", "gpu", "power"]
 BROWSER_ONLY_IDS = ("tabs", "find")
 
 # Look of the radial menu and of the on-screen messages (see asus_dial_theme.py for the drawing)
@@ -173,7 +175,8 @@ def config_mtime():
 
 def mode_order(cfg):
     """Ids of the enabled modes, in menu order: built-ins by id, custom ones as 'custom:<id>'."""
-    known = list(BUILTIN_IDS) + ["custom:" + c["id"] for c in cfg["custom"]]
+    known = [i for i in BUILTIN_IDS if i != "gpu" or agpu.has_choice()]  # the GPU mode exists only with 2+ graphics cards
+    known += ["custom:" + c["id"] for c in cfg["custom"]]
     order = [i for i in cfg["modes"].get("order", []) if i in known]
     order += [i for i in DEFAULT_ORDER if i in known and i not in order]
     order += [i for i in known if i not in order]

@@ -12,9 +12,10 @@ import random
 
 import gi
 
+gi.require_version("Gdk", "3.0")
 gi.require_version("Pango", "1.0")
 gi.require_version("PangoCairo", "1.0")
-from gi.repository import Pango, PangoCairo
+from gi.repository import Gdk, Pango, PangoCairo
 import cairo
 
 MENU_PAD, MENU_PAD_HALLOWEEN = 50, 110
@@ -822,3 +823,137 @@ def _osd_body(cr, theme, label, value, t, backdrop):
         cr.fill()
     if kind == "halloween":
         _halloween_osd_frame(cr, pad, w + 2 * pad, h + 2 * pad, t, theme["speed"])
+
+
+def house_picture(w=640, h=480):
+    """A little illustrated house drawn with cairo: the picture of the House mode when you have not put your own."""
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    cr = cairo.Context(surf)
+    cr.scale(w / 640, h / 480)
+
+    def rgb(r, g, b, a=1.0):
+        cr.set_source_rgba(r, g, b, a)
+
+    def disc(x, y, r):
+        cr.arc(x, y, r, 0, 2 * math.pi)
+        cr.fill()
+
+    sky = cairo.LinearGradient(0, 0, 0, 330)  # sky
+    sky.add_color_stop_rgb(0, 0.33, 0.58, 0.92)
+    sky.add_color_stop_rgb(1, 0.84, 0.93, 1.0)
+    cr.set_source(sky)
+    cr.paint()
+    glow = cairo.RadialGradient(530, 85, 8, 530, 85, 95)  # sun
+    glow.add_color_stop_rgba(0, 1, 0.95, 0.6, 1)
+    glow.add_color_stop_rgba(1, 1, 0.95, 0.6, 0)
+    cr.set_source(glow)
+    disc(530, 85, 95)
+    rgb(1, 0.91, 0.45)
+    disc(530, 85, 34)
+    rgb(1, 1, 1, 0.9)  # clouds
+    for x, y, s in ((110, 90, 1.0), (300, 60, 0.8)):
+        for dx, dy, r in ((0, 0, 24), (26, -10, 30), (56, 2, 22), (28, 8, 24)):
+            disc(x + dx * s, y + dy * s, r * s)
+    rgb(0.55, 0.76, 0.43)  # far hills
+    cr.move_to(0, 340)
+    cr.curve_to(140, 270, 300, 290, 420, 322)
+    cr.curve_to(520, 346, 590, 300, 640, 312)
+    cr.line_to(640, 480)
+    cr.line_to(0, 480)
+    cr.fill()
+    rgb(0.40, 0.67, 0.32)  # lawn
+    cr.move_to(0, 372)
+    cr.curve_to(200, 350, 440, 352, 640, 374)
+    cr.line_to(640, 480)
+    cr.line_to(0, 480)
+    cr.fill()
+    rgb(0.89, 0.81, 0.63)  # path
+    cr.move_to(300, 392)
+    cr.line_to(344, 392)
+    cr.line_to(420, 480)
+    cr.line_to(230, 480)
+    cr.fill()
+    rgb(0.33, 0.20, 0.12)  # trunk and leaves
+    cr.rectangle(545, 312, 16, 74)
+    cr.fill()
+    for x, y, r, c in ((553, 286, 46, (0.22, 0.52, 0.27)), (524, 312, 33, (0.27, 0.58, 0.30)), (584, 314, 31, (0.25, 0.55, 0.28))):
+        rgb(*c)
+        disc(x, y, r)
+    rgb(0, 0, 0, 0.12)  # house shadow
+    cr.save()
+    cr.translate(332, 396)
+    cr.scale(1, 0.12)
+    disc(0, 0, 175)
+    cr.restore()
+    rgb(0.62, 0.21, 0.17)  # chimney
+    cr.rectangle(398, 134, 32, 70)
+    cr.fill()
+    rgb(0.45, 0.14, 0.12)
+    cr.rectangle(392, 128, 44, 12)
+    cr.fill()
+    rgb(0.75, 0.75, 0.78, 0.65)  # smoke
+    for x, y, r in ((414, 108, 11), (426, 88, 14), (444, 66, 17)):
+        disc(x, y, r)
+    rgb(0.99, 0.93, 0.80)  # walls
+    cr.rectangle(180, 232, 280, 160)
+    cr.fill()
+    rgb(0.93, 0.85, 0.70)
+    cr.rectangle(180, 366, 280, 26)
+    cr.fill()
+    rgb(0.74, 0.25, 0.20)  # roof
+    cr.move_to(146, 240)
+    cr.line_to(320, 112)
+    cr.line_to(494, 240)
+    cr.close_path()
+    cr.fill()
+    rgb(0.55, 0.16, 0.13)
+    cr.set_line_width(8)
+    cr.set_line_join(cairo.LINE_JOIN_ROUND)
+    cr.move_to(146, 240)
+    cr.line_to(320, 112)
+    cr.line_to(494, 240)
+    cr.stroke()
+    rgb(1, 1, 1)  # round attic window
+    disc(320, 188, 21)
+    rgb(1, 0.88, 0.5)
+    disc(320, 188, 16)
+    rgb(1, 1, 1)
+    cr.set_line_width(3)
+    cr.move_to(304, 188)
+    cr.line_to(336, 188)
+    cr.move_to(320, 172)
+    cr.line_to(320, 204)
+    cr.stroke()
+    for x in (206, 378):  # windows
+        rgb(1, 1, 1)
+        cr.rectangle(x - 5, 265, 66, 66)
+        cr.fill()
+        rgb(1, 0.88, 0.5)
+        cr.rectangle(x, 270, 56, 56)
+        cr.fill()
+        rgb(1, 1, 1)
+        cr.set_line_width(4)
+        cr.move_to(x + 28, 270)
+        cr.line_to(x + 28, 326)
+        cr.move_to(x, 298)
+        cr.line_to(x + 56, 298)
+        cr.stroke()
+        rgb(0.45, 0.28, 0.16)  # flower box
+        cr.rectangle(x - 7, 331, 70, 12)
+        cr.fill()
+        for i, c in enumerate(((0.9, 0.2, 0.3), (1, 0.8, 0.2), (0.9, 0.2, 0.3), (1, 0.8, 0.2))):
+            rgb(*c)
+            disc(x + 6 + i * 15, 328, 6)
+    rgb(0.40, 0.25, 0.14)  # door
+    cr.move_to(290, 392)
+    cr.line_to(290, 318)
+    cr.arc(320, 318, 30, math.pi, 2 * math.pi)
+    cr.line_to(350, 392)
+    cr.close_path()
+    cr.fill()
+    rgb(0.52, 0.34, 0.20)
+    cr.rectangle(299, 334, 42, 58)
+    cr.fill()
+    rgb(1, 0.85, 0.3)
+    disc(334, 364, 3.5)
+    return Gdk.pixbuf_get_from_surface(surf, 0, 0, w, h)

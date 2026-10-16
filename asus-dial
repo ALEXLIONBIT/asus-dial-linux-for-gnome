@@ -67,7 +67,6 @@ STR = {
     "power_count": ("⏻ Shutting down in {n} s — click or rotate to cancel", "⏻ Apagado en {n} s — clic o giro para cancelar",
                     "⏻ Arresto tra {n} s — clic o rotazione per annullare"),
     "power_cancel": ("⏻ Shutdown cancelled", "⏻ Apagado cancelado", "⏻ Arresto annullato"),
-    "no_image": ("🏠 Image not found", "🏠 Imagen no encontrada", "🏠 Immagine non trovata"),
     "keylight_na": ("⌨ Keyboard backlight not available", "⌨ Retroiluminación no disponible", "⌨ Retroilluminazione non disponibile"),
     "keylight_level": ("⌨ Keyboard backlight level {l}/{m}", "⌨ Retroiluminación nivel {l}/{m}", "⌨ Retroilluminazione livello {l}/{m}"),
     "keylight_off": ("⌨ Keyboard backlight off", "⌨ Retroiluminación apagada", "⌨ Retroilluminazione spenta"),
@@ -138,7 +137,7 @@ def save_lang():
             f.write(_lang[0])
     except OSError:
         pass
-HOUSE_IMAGE = os.path.expanduser("~/Immagini/casa.png")  # any picture you like
+HOUSE_IMAGES = [os.path.expanduser(f"~/{d}/casa.{e}") for d in ("Immagini", "Pictures") for e in ("png", "jpg", "jpeg")]  # your own picture, if you put one there; else a drawn house
 HOUSE_WIDTH = 640  # px on screen
 HOUSE_DEG_PER_UNIT = 2.0  # the picture tilts with the dial
 POWER_ARM_UNITS = 45  # ~5 detents clockwise to arm the shutdown
@@ -1444,13 +1443,42 @@ class Dial:
                                   "org.freedesktop.DBus.Properties", method, args,
                                   None, Gio.DBusCallFlags.NONE, 500, None)
 
+    # Screen brightness. GNOME 48+ moved it into Mutter (DisplayConfig.Backlight, in the panel's own units);
+    # older GNOME has it in gnome-settings-daemon (a plain 0-100 property). Both are tried, Mutter first.
+    def _backlight(self):
+        """(serial, [outputs with a backlight]) from Mutter, or None if this GNOME has no such property."""
+        try:
+            r = self.bus.call_sync("org.gnome.Mutter.DisplayConfig", "/org/gnome/Mutter/DisplayConfig", "org.freedesktop.DBus.Properties", "Get",
+                                   GLib.Variant("(ss)", ("org.gnome.Mutter.DisplayConfig", "Backlight")), None, Gio.DBusCallFlags.NONE, 500, None)
+            serial, outs = r.unpack()[0]
+            outs = [o for o in outs if o.get("active", True) and o["max"] > o["min"]]
+            return (serial, outs) if outs else None
+        except (GLib.Error, KeyError, ValueError):
+            return None
+
     def get_brightness(self):
+        bl = self._backlight()
+        if bl:
+            o = bl[1][0]
+            return round((o["value"] - o["min"]) * 100 / (o["max"] - o["min"]))
         try:
             return self._power("Get", GLib.Variant("(ss)", ("org.gnome.SettingsDaemon.Power.Screen", "Brightness"))).unpack()[0]
         except GLib.Error:
             return 50
 
     def set_brightness(self, pct):
+        pct = max(0, min(100, pct))
+        bl = self._backlight()
+        if bl:
+            serial, outs = bl
+            for o in outs:
+                value = round(o["min"] + pct * (o["max"] - o["min"]) / 100)
+                try:
+                    self.bus.call_sync("org.gnome.Mutter.DisplayConfig", "/org/gnome/Mutter/DisplayConfig", "org.gnome.Mutter.DisplayConfig",
+                                       "SetBacklight", GLib.Variant("(usi)", (serial, o["connector"], value)), None, Gio.DBusCallFlags.NONE, 500, None)
+                except GLib.Error:
+                    pass
+            return
         try:
             self._power("Set", GLib.Variant("(ssv)", ("org.gnome.SettingsDaemon.Power.Screen", "Brightness", GLib.Variant("i", pct))))
         except GLib.Error:
@@ -1494,12 +1522,15 @@ class Dial:
     def show_house(self, delta):
         o = self.house_win
         if o.image is None:
-            try:
-                pb = GdkPixbuf.Pixbuf.new_from_file(HOUSE_IMAGE)
-                o.image = pb.scale_simple(HOUSE_WIDTH, int(pb.get_height() * HOUSE_WIDTH / pb.get_width()), GdkPixbuf.InterpType.BILINEAR)
-            except GLib.Error:
-                self.show_label(L("no_image"))
-                return
+            for path in HOUSE_IMAGES:  # a picture of yours called casa.png / casa.jpg ...
+                try:
+                    pb = GdkPixbuf.Pixbuf.new_from_file(path)
+                    o.image = pb.scale_simple(HOUSE_WIDTH, int(pb.get_height() * HOUSE_WIDTH / pb.get_width()), GdkPixbuf.InterpType.BILINEAR)
+                    break
+                except GLib.Error:
+                    continue
+            else:  # ... or the little house that comes with the program
+                o.image = ath.house_picture(HOUSE_WIDTH, HOUSE_WIDTH * 3 // 4)
         o.angle += delta * -self.sign * HOUSE_DEG_PER_UNIT
         o.show_for("image", 1500)
 

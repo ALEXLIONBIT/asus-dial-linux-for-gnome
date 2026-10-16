@@ -35,7 +35,7 @@ BROWSER_ONLY_IDS = ("tabs", "find")
 
 # Look of the radial menu and of the on-screen messages (see asus_dial_theme.py for the drawing)
 DEFAULT_THEME = {
-    "bg_type": "color",        # color | image | rainbow | halloween
+    "bg_type": "color",        # color | image | rainbow | halloween | christmas
     "bg_color": "#141419",
     "bg_opacity": 0.88,        # 0..1
     "bg_image": "",            # cropped PNG written by the manager
@@ -50,7 +50,7 @@ DEFAULT_THEME = {
     "shadow": False,
     "shadow_strength": 0.6,    # 0..1
     "sparkles": False,
-    "speed": 0.5,              # animation speed of rainbow / sparkles / halloween
+    "speed": 0.5,              # animation speed of rainbow / sparkles / halloween / christmas
 }
 THEME_PRESETS = {
     "default": {},
@@ -66,12 +66,29 @@ THEME_PRESETS = {
               "reflection": 0.3, "shadow": True, "shadow_strength": 0.45, "sparkles": False},
     "halloween": {"bg_type": "halloween", "bg_opacity": 0.95, "accent": "#ff7a00", "text": "#fff3e0", "glow": True, "glow_color": "#ff7a00",
                   "glow_strength": 0.9, "reflection": 0.0, "shadow": True, "shadow_strength": 0.6, "sparkles": False},
+    "christmas": {"bg_type": "christmas", "bg_opacity": 0.95, "accent": "#d62828", "text": "#fff8e7", "glow": True, "glow_color": "#ffd166",
+                  "glow_strength": 0.7, "reflection": 0.12, "shadow": True, "shadow_strength": 0.6, "sparkles": False, "speed": 0.5},
+    "oled": {"bg_type": "color", "bg_color": "#000000", "bg_opacity": 1.0, "accent": "#7c5cff", "text": "#ffffff", "glow": False,
+             "reflection": 0.0, "shadow": False, "sparkles": False},
+    "forest": {"bg_type": "color", "bg_color": "#0a1c11", "bg_opacity": 0.94, "accent": "#2f9e5e", "text": "#e6f6ea", "glow": True,
+               "glow_color": "#3ddc84", "glow_strength": 0.45, "reflection": 0.14, "shadow": True, "shadow_strength": 0.55, "sparkles": True, "speed": 0.3},
+    "midnight": {"bg_type": "color", "bg_color": "#060a22", "bg_opacity": 0.94, "accent": "#4f6bff", "text": "#e6ebff", "glow": True,
+                 "glow_color": "#5b7bff", "glow_strength": 0.55, "reflection": 0.18, "shadow": True, "shadow_strength": 0.55, "sparkles": True, "speed": 0.35},
+    "ocean": {"bg_type": "color", "bg_color": "#05202c", "bg_opacity": 0.93, "accent": "#13a6b5", "text": "#e0fbff", "glow": True,
+              "glow_color": "#22d3ee", "glow_strength": 0.5, "reflection": 0.22, "shadow": True, "shadow_strength": 0.5, "sparkles": False},
+    "sakura": {"bg_type": "color", "bg_color": "#2a1120", "bg_opacity": 0.93, "accent": "#ec5fa3", "text": "#ffeaf4", "glow": True,
+               "glow_color": "#f9a8d4", "glow_strength": 0.5, "reflection": 0.2, "shadow": True, "shadow_strength": 0.5, "sparkles": True, "speed": 0.3},
+    "ember": {"bg_type": "color", "bg_color": "#190705", "bg_opacity": 0.94, "accent": "#ff5a1f", "text": "#fff0e6", "glow": True,
+              "glow_color": "#ff7a1a", "glow_strength": 0.75, "reflection": 0.1, "shadow": True, "shadow_strength": 0.6, "sparkles": False},
 }
 PRESET_NAMES = {
     "default": ("Default", "Predeterminado", "Predefinito"), "glass": ("Glass", "Cristal", "Vetro"),
     "neon": ("Neon", "Neón", "Neon"), "rainbow": ("Rainbow ✨", "Arcoíris ✨", "Arcobaleno ✨"),
     "sunset": ("Sunset", "Atardecer", "Tramonto"), "paper": ("Paper (light)", "Papel (claro)", "Carta (chiaro)"),
     "halloween": ("Halloween 🎃", "Halloween 🎃", "Halloween 🎃"),
+    "christmas": ("Christmas 🎄", "Navidad 🎄", "Natale 🎄"), "oled": ("OLED black", "Negro OLED", "Nero OLED"),
+    "forest": ("Forest 🌲", "Bosque 🌲", "Foresta 🌲"), "midnight": ("Midnight 🌙", "Medianoche 🌙", "Mezzanotte 🌙"),
+    "ocean": ("Ocean 🌊", "Océano 🌊", "Oceano 🌊"), "sakura": ("Sakura 🌸", "Sakura 🌸", "Sakura 🌸"), "ember": ("Ember 🔥", "Brasa 🔥", "Brace 🔥"),
 }
 
 

@@ -89,6 +89,14 @@ def _witch_hat(cr, x, y, r):
     cr.restore()
 
 
+def _party_hat(cr, hat, x, y, r, t):
+    """The hat of the season: a Santa hat for Christmas (hat == "santa"), a witch hat otherwise."""
+    if hat == "santa":
+        ath.santa_hat(cr, x, y + r * 0.1, r * 0.95, -0.12, t)
+    else:
+        _witch_hat(cr, x, y, r)
+
+
 # ------------------------------------------------------------------ characters (feet at 0, 0; height H; y points up as negative)
 def draw_human(cr, H, t, st, color, rainbow, hat, curly=False):
     walk = st["walk"]
@@ -183,7 +191,7 @@ def draw_human(cr, H, t, st, color, rainbow, hat, curly=False):
     cr.arc(0, hy + H * 0.015, H * 0.045, math.pi * 0.2, math.pi * 0.8)
     cr.stroke()
     if hat:
-        _witch_hat(cr, 0, hy - H * 0.085, H * 0.19)
+        _party_hat(cr, hat, 0, hy - H * 0.085, H * 0.19, t)
     cr.restore()
     cr.restore()
 
@@ -286,7 +294,7 @@ def draw_robot(cr, H, t, st, color, rainbow, hat):
         cr.set_source_rgb(*ink)
         cr.fill()
     if hat:
-        _witch_hat(cr, 0, hy - H * 0.105, H * 0.19)
+        _party_hat(cr, hat, 0, hy - H * 0.105, H * 0.19, t)
     cr.restore()
     cr.restore()
 
@@ -295,7 +303,7 @@ def draw_skeleton(cr, H, t, st, color, rainbow, hat):
     bone = _hsv(t * 0.25, 0.35, 1.0) if rainbow else (ath.rgb(color) if color else (0.96, 0.95, 0.88))
     ath._skeleton(cr, 0, 0, H, t, 0.0, bone=bone)
     if hat:
-        _witch_hat(cr, 0, -H * 0.93, H * 0.17)
+        _party_hat(cr, hat, 0, -H * 0.93, H * 0.17, t)
 
 
 def draw_claude(cr, H, t, st):
@@ -459,6 +467,7 @@ class Welcome:
         self.color = w.get("color") or "#4080ff"
         self.rainbow = bool(w.get("rainbow")) or self.theme["bg_type"] == "rainbow"
         self.halloween = self.theme["bg_type"] == "halloween"
+        self.christmas = self.theme["bg_type"] == "christmas"
         self.image = None
         if self.character == "image":
             try:
@@ -506,6 +515,8 @@ class Welcome:
         text = ath.rgb(th["text"], (1, 1, 1))
         if self.halloween:
             return (0.16, 0.05, 0.24, 0.96), accent, text
+        if self.christmas:
+            return (0.04, 0.2, 0.14, 0.96), accent, text
         if th["bg_type"] in ("rainbow", "image"):
             return (0.08, 0.08, 0.11, 0.94), accent, text
         return (*ath.rgb(th["bg_color"], (0.08, 0.08, 0.1)), max(0.92, th["bg_opacity"])), accent, text
@@ -538,9 +549,17 @@ class Welcome:
             for k in range(2):
                 u = (t * 0.12 * (0.5 + sp) + k * 0.5) % 1.0
                 ath._bat(cr, u * w, h * (0.12 + 0.1 * k) + math.sin(u * 18 + k) * h * 0.02, H * 0.14, t, k * 2)
+        if self.christmas:
+            sp = self.theme["speed"]
+            ath._snowfall(cr, 0, 0, w, h, t, sp, count=60, seed=31, size=1.3)
+            ath._xmas_tree(cr, x_stop + H * 1.05, ground, H * 0.95, t)
+            ath._xmas_gift(cr, x_stop + H * 0.62, ground, H * 0.2, (0.85, 0.15, 0.2), (1.0, 0.85, 0.35))
+            ath._xmas_gift(cr, x_stop + H * 0.82, ground, H * 0.14, (0.15, 0.5, 0.82), (1, 1, 1))
+            ath._snowman(cr, x_stop + H * 1.75, ground, H * 0.7, t)
+            ath._xmas_gift(cr, x_stop + H * 2.15, ground, H * 0.17, (0.1, 0.55, 0.3), (0.95, 0.2, 0.25))
         cr.translate(x, ground)
         cr.scale(face, 1)
-        hat = self.halloween and self.character != "image"
+        hat = ("santa" if self.christmas else True) if ((self.halloween or self.christmas) and self.character != "image") else False
         if self.character == "robot":
             draw_robot(cr, H, t, st, self.color, self.rainbow, hat)
         elif self.character == "skeleton":
@@ -564,7 +583,7 @@ class Welcome:
         lines, lh, tw = self._layout(cr, px, maxw)
         padx, pady = px * 0.8, px * 0.6
         bw, bh = tw + 2 * padx, len(lines) * lh * 1.12 + 2 * pady
-        top_extra = H * (0.27 if (self.halloween and self.character != "image") else 0.05)
+        top_extra = H * (0.27 if ((self.halloween or self.christmas) and self.character != "image") else 0.05)
         bx = max(w * 0.015, min(w - bw - w * 0.015, x + H * 0.1))
         by = ground - H * 1.06 - top_extra - bh
         fill, border, tcol = self._bubble_colors()

@@ -97,6 +97,7 @@ STR = {
     "bg_image": ("Image", "Imagen", "Immagine"),
     "bg_rainbow": ("Rainbow ✨", "Arcoíris ✨", "Arcobaleno ✨"),
     "bg_halloween": ("Halloween 🎃", "Halloween 🎃", "Halloween 🎃"),
+    "bg_christmas": ("Christmas 🎄", "Navidad 🎄", "Natale 🎄"),
     "opacity": ("Opacity", "Opacidad", "Opacità"),
     "choose_image": ("Choose and crop an image…", "Elegir y recortar una imagen…", "Scegli e ritaglia un'immagine…"),
     "no_image": ("(no image yet)", "(todavía sin imagen)", "(ancora nessuna immagine)"),
@@ -458,7 +459,7 @@ class Manager(Gtk.Window):
         # background type
         label("bg_type")
         bg = Gtk.ComboBoxText()
-        for kind, key in (("color", "bg_color"), ("image", "bg_image"), ("rainbow", "bg_rainbow"), ("halloween", "bg_halloween")):
+        for kind, key in (("color", "bg_color"), ("image", "bg_image"), ("rainbow", "bg_rainbow"), ("halloween", "bg_halloween"), ("christmas", "bg_christmas")):
             bg.append(kind, self.tr(key))
         bg.connect("changed", lambda c: self.set_theme("bg_type", c.get_active_id()))
         add(bg)

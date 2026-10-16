@@ -19,6 +19,7 @@ from gi.repository import Gdk, Pango, PangoCairo
 import cairo
 
 MENU_PAD, MENU_PAD_HALLOWEEN = 50, 110
+THEMED = ("halloween", "christmas")  # backgrounds with their own artwork around the menu and the messages
 OSD_W, OSD_H, OSD_PAD, OSD_PAD_HALLOWEEN = 360, 110, 30, 56
 
 
@@ -32,15 +33,15 @@ def rgb(hex_color, default=(0.5, 0.5, 0.5)):
 
 
 def is_animated(theme):
-    return theme.get("bg_type") in ("rainbow", "halloween") or bool(theme.get("sparkles"))
+    return theme.get("bg_type") in ("rainbow", "halloween", "christmas") or bool(theme.get("sparkles"))
 
 
 def menu_pad(theme):
-    return MENU_PAD_HALLOWEEN if theme.get("bg_type") == "halloween" else MENU_PAD
+    return MENU_PAD_HALLOWEEN if theme.get("bg_type") in THEMED else MENU_PAD
 
 
 def osd_pad(theme):
-    return OSD_PAD_HALLOWEEN if theme.get("bg_type") == "halloween" else OSD_PAD
+    return OSD_PAD_HALLOWEEN if theme.get("bg_type") in THEMED else OSD_PAD
 
 
 # ------------------------------------------------------------------ animation helpers
@@ -632,7 +633,7 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
     R = msize / 2
     cx = cy = pad + R
     Wd = msize + 2 * pad
-    halloween = theme["bg_type"] == "halloween"
+    framed = theme["bg_type"] in THEMED
     tc = rgb(theme["text"], (1, 1, 1))
     accent = rgb(theme["accent"], (0.25, 0.55, 1.0))
     r_disc, r_out, r_in = R - 5, R - 10, 105
@@ -670,6 +671,8 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
         _bg_image(cr, cx, cy, r_disc, theme, op)
     elif kind == "halloween":
         _halloween_disc(cr, cx, cy, r_disc, t, theme["speed"], op)
+    elif kind == "christmas":
+        _xmas_disc(cr, cx, cy, r_disc, t, theme["speed"], op)
     else:
         cr.set_source_rgba(*rgb(theme["bg_color"], (0.08, 0.08, 0.1)), op)
         cr.paint()
@@ -680,7 +683,7 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
         cr.arc(cx, cy, r_out, a0 + 0.02, a0 + step - 0.02)
         cr.arc_negative(cx, cy, r_in, a0 + step - 0.02, a0 + 0.02)
         cr.close_path()
-        cr.set_source_rgba(*tc, 0.07 if kind != "halloween" else 0.05)
+        cr.set_source_rgba(*tc, 0.07 if kind not in THEMED else 0.05)
         cr.fill()
     a0 = -math.pi / 2 + (sp - 0.5) * step  # the highlighted slice (it can sit between two slices while it slides)
     cr.new_path()
@@ -714,7 +717,7 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
         cr.arc(cx, cy, r_disc - 2, math.pi * 1.1, math.pi * 1.9)
         cr.set_source_rgba(1, 1, 1, 0.35 * k)
         cr.stroke()
-    if theme["sparkles"] and kind != "halloween":
+    if theme["sparkles"] and kind not in THEMED:
         _sparkles(cr, cx, cy, r_disc, t, theme["speed"], seed=3)
     if kind == "rainbow":
         _sparkles(cr, cx, cy, r_disc, t, theme["speed"], seed=5, count=34)
@@ -729,8 +732,8 @@ def _menu_body(cr, theme, items, sel, t, msize, backdrop, sp):
         text(cr, items[min(sel, len(items) - 1)][1], 13, cx, cy)
     cr.restore()
 
-    if halloween:
-        _halloween_frame(cr, pad, Wd, Wd, cx, cy, r_disc, t, theme["speed"])
+    if framed:
+        (_xmas_frame if kind == "christmas" else _halloween_frame)(cr, pad, Wd, Wd, cx, cy, r_disc, t, theme["speed"])
 
 
 # ------------------------------------------------------------------ the on-screen message
@@ -793,6 +796,14 @@ def _osd_body(cr, theme, label, value, t, backdrop):
         cr.set_source(g)
         cr.paint()
         _sparkles(cr, x0 + w / 2, y0 + h / 2, w * 0.45, t, theme["speed"], color=(1, 0.9, 0.6), count=14, seed=2)
+    elif kind == "christmas":
+        g = cairo.LinearGradient(x0, y0, x0 + w, y0 + h)
+        g.add_color_stop_rgba(0, 0.08, 0.3, 0.21, op)
+        g.add_color_stop_rgba(1, 0.02, 0.1, 0.1, op)
+        cr.set_source(g)
+        cr.paint()
+        _sparkles(cr, x0 + w / 2, y0 + h / 2, w * 0.45, t, theme["speed"], color=XMAS_GOLD, count=14, seed=2)
+        _snowfall(cr, x0, y0, w, h, t, theme["speed"], count=16, seed=3, size=0.9)
     else:
         cr.set_source_rgba(*rgb(theme["bg_color"], (0.08, 0.08, 0.1)), op)
         cr.paint()
@@ -804,7 +815,7 @@ def _osd_body(cr, theme, label, value, t, backdrop):
         cr.set_source(g)
         cr.rectangle(x0, y0, w, h * 0.55)
         cr.fill()
-    if theme["sparkles"] and kind != "halloween":
+    if theme["sparkles"] and kind not in THEMED:
         _sparkles(cr, x0 + w / 2, y0 + h / 2, w * 0.5, t, theme["speed"], seed=4, count=20)
     cr.restore()
 
@@ -823,6 +834,8 @@ def _osd_body(cr, theme, label, value, t, backdrop):
         cr.fill()
     if kind == "halloween":
         _halloween_osd_frame(cr, pad, w + 2 * pad, h + 2 * pad, t, theme["speed"])
+    elif kind == "christmas":
+        _xmas_osd_frame(cr, pad, w + 2 * pad, h + 2 * pad, t, theme["speed"])
 
 
 def house_picture(w=640, h=480):
@@ -957,3 +970,391 @@ def house_picture(w=640, h=480):
     rgb(1, 0.85, 0.3)
     disc(334, 364, 3.5)
     return Gdk.pixbuf_get_from_surface(surf, 0, 0, w, h)
+
+
+# ------------------------------------------------------------------ Christmas artwork
+XMAS_RED, XMAS_GOLD = (0.84, 0.15, 0.18), (1.0, 0.82, 0.32)
+XMAS_LIGHTS = ((1.0, 0.27, 0.27), (1.0, 0.82, 0.3), (0.32, 0.9, 0.48), (0.36, 0.66, 1.0))
+
+
+def _glow(cr, x, y, r, color, alpha):
+    g = cairo.RadialGradient(x, y, 0, x, y, r)
+    g.add_color_stop_rgba(0, *color, alpha)
+    g.add_color_stop_rgba(1, *color, 0)
+    cr.set_source(g)
+    cr.arc(x, y, r, 0, 2 * math.pi)
+    cr.fill()
+
+
+def _bulb(cr, x, y, r, color, on):
+    """A string-light bulb; on = 0..1 is how bright it is."""
+    _glow(cr, x, y, r * 3.6, color, 0.55 * on)
+    k = 0.45 + 0.55 * on
+    cr.set_source_rgb(*(c * k + 0.08 * (1 - k) for c in color))
+    cr.arc(x, y, r, 0, 2 * math.pi)
+    cr.fill()
+    cr.set_source_rgba(1, 1, 1, 0.6 * on)
+    cr.arc(x - r * 0.3, y - r * 0.3, r * 0.34, 0, 2 * math.pi)
+    cr.fill()
+
+
+def _light_swag(cr, x0, y0, x1, y1, sag, t, n, speed=0.5, phase=0.0, r=3.4):
+    """A string of Christmas lights hanging between two points; the bulbs twinkle in a chase."""
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2 + sag * 2  # control point of the curve (it sags by about `sag`)
+    pts = []
+    for i in range(29):
+        u = i / 28
+        a, b, c = (1 - u) ** 2, 2 * (1 - u) * u, u * u
+        pts.append((a * x0 + b * mx + c * x1, a * y0 + b * my + c * y1))
+    cr.set_source_rgb(0.04, 0.17, 0.1)
+    cr.set_line_width(2)
+    cr.move_to(*pts[0])
+    for p in pts[1:]:
+        cr.line_to(*p)
+    cr.stroke()
+    for i in range(n):
+        px, py = pts[int((i + 0.5) / n * 28)]
+        cr.set_source_rgb(0.04, 0.17, 0.1)
+        cr.rectangle(px - 1.3, py, 2.6, r * 0.9)
+        cr.fill()
+        on = 0.3 + 0.7 * max(0.0, math.sin(t * (1.5 + 2.4 * speed) - i * 0.85 + phase))
+        _bulb(cr, px, py + r * 1.7, r, XMAS_LIGHTS[i % 4], on)
+
+
+def _star5(cr, x, y, ro, ri):
+    for i in range(10):
+        a = -math.pi / 2 + i * math.pi / 5
+        rr = ro if i % 2 == 0 else ri
+        (cr.move_to if i == 0 else cr.line_to)(x + rr * math.cos(a), y + rr * math.sin(a))
+    cr.close_path()
+
+
+def _xmas_tree(cr, x, base, s, t, phase=0.0):
+    """A decorated tree: x = centre, base = ground, s = height."""
+    cr.set_source_rgb(0.33, 0.2, 0.1)
+    cr.rectangle(x - s * 0.045, base - s * 0.15, s * 0.09, s * 0.15)
+    cr.fill()
+    for hw, y_bot, y_top in ((0.30, 0.14, 0.50), (0.24, 0.36, 0.72), (0.17, 0.58, 0.93)):
+        xl, xr, yb, yt = x - hw * s, x + hw * s, base - y_bot * s, base - y_top * s
+        g = cairo.LinearGradient(xl, 0, xr, 0)
+        g.add_color_stop_rgb(0, 0.11, 0.52, 0.29)
+        g.add_color_stop_rgb(0.55, 0.06, 0.38, 0.21)
+        g.add_color_stop_rgb(1, 0.03, 0.24, 0.14)
+        cr.set_source(g)
+        cr.move_to(x, yt)
+        cr.line_to(xl, yb)
+        cr.curve_to(x - hw * s * 0.5, yb - s * 0.05, x + hw * s * 0.5, yb - s * 0.05, xr, yb)
+        cr.close_path()
+        cr.fill()
+        cr.set_source_rgba(*XMAS_GOLD, 0.85)  # gold garland
+        cr.set_line_width(max(1.0, s * 0.012))
+        cr.move_to(xl + hw * s * 0.18, yb - (yb - yt) * 0.2)
+        cr.curve_to(x - hw * s * 0.3, yb - (yb - yt) * 0.05, x + hw * s * 0.3, yb - (yb - yt) * 0.5, xr - hw * s * 0.2, yb - (yb - yt) * 0.28)
+        cr.stroke()
+        cr.set_source_rgba(1, 1, 1, 0.92)  # snow on the lower tips
+        for sx in (xl + hw * s * 0.12, xr - hw * s * 0.12):
+            cr.save()
+            cr.translate(sx, yb - s * 0.015)
+            cr.scale(s * 0.06, s * 0.022)
+            cr.arc(0, 0, 1, 0, 2 * math.pi)
+            cr.restore()
+            cr.fill()
+    orn = ((-0.16, 0.20, 0), (0.10, 0.24, 1), (-0.02, 0.33, 3), (-0.11, 0.43, 1), (0.12, 0.47, 0), (0.0, 0.58, 2), (-0.05, 0.66, 0),
+           (0.07, 0.73, 3), (0.0, 0.83, 1))
+    for i, (dx, dy, c) in enumerate(orn):
+        on = 0.35 + 0.65 * max(0.0, math.sin(t * 2.6 + i * 1.7 + phase))
+        _bulb(cr, x + dx * s, base - dy * s, s * 0.02, XMAS_LIGHTS[c], on)
+    pulse = 0.75 + 0.25 * math.sin(t * 3 + phase)
+    _glow(cr, x, base - 0.95 * s, s * 0.2, XMAS_GOLD, 0.6 * pulse)
+    _star5(cr, x, base - 0.955 * s, s * 0.075, s * 0.034)
+    cr.set_source_rgb(*XMAS_GOLD)
+    cr.fill()
+
+
+def _xmas_gift(cr, x, base, s, body, ribbon):
+    """A wrapped present: x = centre, base = ground, s = width."""
+    w, h = s, s * 0.78
+    x0, y0 = x - w / 2, base - h
+    g = cairo.LinearGradient(x0, 0, x0 + w, 0)
+    g.add_color_stop_rgb(0, *(min(1, c * 1.15) for c in body))
+    g.add_color_stop_rgb(1, *(c * 0.75 for c in body))
+    cr.set_source(g)
+    cr.rectangle(x0, y0, w, h)
+    cr.fill()
+    cr.set_source_rgb(*(c * 0.85 for c in body))  # lid
+    cr.rectangle(x0 - s * 0.04, y0, w + s * 0.08, h * 0.24)
+    cr.fill()
+    cr.set_source_rgb(*ribbon)
+    cr.rectangle(x - s * 0.085, y0, s * 0.17, h)
+    cr.fill()
+    cr.set_line_width(s * 0.055)
+    for sx in (-1, 1):  # bow
+        cr.save()
+        cr.translate(x, y0 - s * 0.01)
+        cr.rotate(sx * 0.5)
+        cr.scale(1, 0.62)
+        cr.arc(sx * s * 0.15, -s * 0.08, s * 0.14, 0, 2 * math.pi)
+        cr.restore()
+        cr.stroke()
+    cr.arc(x, y0 - s * 0.02, s * 0.06, 0, 2 * math.pi)
+    cr.fill()
+
+
+def _snowman(cr, x, base, s, t):
+    """x = centre, base = ground, s = height."""
+    cr.save()
+    cr.translate(x, base)
+    cr.rotate(math.sin(t * 1.3) * 0.025)
+    for cy, rr in ((-0.2, 0.2), (-0.5, 0.15), (-0.73, 0.115)):
+        g = cairo.RadialGradient(-rr * s * 0.3, (cy - rr * 0.3) * s, rr * s * 0.1, 0, cy * s, rr * s)
+        g.add_color_stop_rgb(0, 1, 1, 1)
+        g.add_color_stop_rgb(1, 0.76, 0.85, 0.96)
+        cr.set_source(g)
+        cr.arc(0, cy * s, rr * s, 0, 2 * math.pi)
+        cr.fill()
+    cr.set_source_rgb(0.35, 0.2, 0.1)  # arms
+    cr.set_line_width(s * 0.022)
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    for sx in (-1, 1):
+        cr.move_to(sx * s * 0.13, -0.52 * s)
+        cr.line_to(sx * s * 0.34, -(0.62 + 0.05 * math.sin(t * 2 + sx)) * s)
+        cr.stroke()
+    cr.set_source_rgb(*XMAS_RED)  # scarf
+    _rounded(cr, -s * 0.14, -0.64 * s, s * 0.28, s * 0.06, s * 0.03)
+    cr.fill()
+    cr.move_to(s * 0.07, -0.6 * s)
+    cr.line_to(s * 0.14 + math.sin(t * 2.5) * s * 0.02, -0.47 * s)
+    cr.line_to(s * 0.07, -0.47 * s)
+    cr.close_path()
+    cr.fill()
+    cr.set_source_rgb(0.08, 0.08, 0.1)  # hat
+    cr.save()
+    cr.translate(0, -0.835 * s)
+    cr.scale(s * 0.14, s * 0.022)
+    cr.arc(0, 0, 1, 0, 2 * math.pi)
+    cr.restore()
+    cr.fill()
+    cr.rectangle(-s * 0.085, -0.93 * s, s * 0.17, s * 0.1)
+    cr.fill()
+    cr.set_source_rgb(*XMAS_RED)
+    cr.rectangle(-s * 0.085, -0.865 * s, s * 0.17, s * 0.03)
+    cr.fill()
+    cr.set_source_rgb(0.05, 0.05, 0.07)  # eyes, buttons
+    for ex in (-0.04, 0.04):
+        cr.arc(ex * s, -0.755 * s, s * 0.011, 0, 2 * math.pi)
+        cr.fill()
+    for by in (-0.5, -0.43, -0.3):
+        cr.arc(0, by * s, s * 0.013, 0, 2 * math.pi)
+        cr.fill()
+    cr.set_source_rgb(1, 0.52, 0.1)  # carrot
+    cr.move_to(0, -0.74 * s)
+    cr.line_to(s * 0.11, -0.722 * s)
+    cr.line_to(0, -0.71 * s)
+    cr.close_path()
+    cr.fill()
+    cr.restore()
+
+
+def _leaf(cr, ang, ln, wd, color):
+    cr.save()
+    cr.rotate(ang)
+    cr.move_to(0, 0)
+    cr.curve_to(ln * 0.3, -wd, ln * 0.7, -wd * 0.8, ln, 0)
+    cr.curve_to(ln * 0.7, wd * 0.8, ln * 0.3, wd, 0, 0)
+    cr.set_source_rgb(*color)
+    cr.fill()
+    cr.set_source_rgba(1, 1, 1, 0.25)
+    cr.set_line_width(max(0.8, ln * 0.02))
+    cr.move_to(0, 0)
+    cr.line_to(ln * 0.92, 0)
+    cr.stroke()
+    cr.restore()
+
+
+def _holly(cr, x, y, s, flip=1):
+    """A sprig of holly: two leaves and red berries. s = leaf length."""
+    cr.save()
+    cr.translate(x, y)
+    cr.scale(flip, 1)
+    _leaf(cr, math.radians(-150), s, s * 0.28, (0.05, 0.33, 0.17))
+    _leaf(cr, math.radians(-30), s, s * 0.28, (0.09, 0.43, 0.22))
+    _leaf(cr, math.radians(95), s * 0.8, s * 0.24, (0.06, 0.37, 0.19))
+    for bx, by in ((-0.07, 0.03), (0.08, 0.02), (0.0, 0.12)):
+        g = cairo.RadialGradient(bx * s - s * 0.025, by * s - s * 0.025, 0, bx * s, by * s, s * 0.11)
+        g.add_color_stop_rgb(0, 1, 0.5, 0.5)
+        g.add_color_stop_rgb(0.5, *XMAS_RED)
+        g.add_color_stop_rgb(1, 0.5, 0.05, 0.08)
+        cr.set_source(g)
+        cr.arc(bx * s, by * s, s * 0.1, 0, 2 * math.pi)
+        cr.fill()
+    cr.restore()
+
+
+def _hang_bauble(cr, x, y, length, r, color, t, phase=0.0):
+    bx, by = x + math.sin(t * 1.5 + phase) * r * 0.35, y + length
+    cr.set_source_rgba(*XMAS_GOLD, 0.8)
+    cr.set_line_width(1.2)
+    cr.move_to(x, y)
+    cr.line_to(bx, by - r * 1.15)
+    cr.stroke()
+    cr.set_source_rgb(*XMAS_GOLD)
+    cr.rectangle(bx - r * 0.28, by - r * 1.3, r * 0.56, r * 0.32)
+    cr.fill()
+    g = cairo.RadialGradient(bx - r * 0.35, by - r * 0.4, r * 0.1, bx, by, r)
+    g.add_color_stop_rgb(0, *(min(1, c * 0.5 + 0.55) for c in color))
+    g.add_color_stop_rgb(0.5, *color)
+    g.add_color_stop_rgb(1, *(c * 0.45 for c in color))
+    cr.set_source(g)
+    cr.arc(bx, by, r, 0, 2 * math.pi)
+    cr.fill()
+    cr.set_source_rgba(1, 1, 1, 0.7)
+    cr.save()
+    cr.translate(bx - r * 0.35, by - r * 0.4)
+    cr.rotate(-0.7)
+    cr.scale(r * 0.22, r * 0.12)
+    cr.arc(0, 0, 1, 0, 2 * math.pi)
+    cr.restore()
+    cr.fill()
+
+
+def _snowfall(cr, x0, y0, w, h, t, speed, count=40, seed=1, size=1.0):
+    rnd = random.Random(seed)
+    for _ in range(count):
+        fx, fy, vy, sz, ph = rnd.random(), rnd.random(), rnd.uniform(0.05, 0.14), rnd.uniform(0.9, 2.6), rnd.uniform(0, 6.3)
+        y = (fy + t * vy * (0.4 + speed)) % 1.0
+        x = (fx + math.sin(t * 0.8 + ph) * 0.02) % 1.0
+        cr.set_source_rgba(1, 1, 1, 0.5 + 0.4 * sz / 2.6)
+        cr.arc(x0 + x * w, y0 + y * h, sz * size, 0, 2 * math.pi)
+        cr.fill()
+
+
+def _snow_ground(cr, w, h, pad, t):
+    top = h - pad * 0.34
+    g = cairo.LinearGradient(0, top - 8, 0, h)
+    g.add_color_stop_rgb(0, 0.98, 0.99, 1)
+    g.add_color_stop_rgb(1, 0.72, 0.82, 0.94)
+    cr.set_source(g)
+    cr.move_to(0, h)
+    for i in range(0, int(w) + 8, 8):
+        cr.line_to(i, top + 5 * math.sin(i * 0.033) + 3.5 * math.sin(i * 0.09 + 1))
+    cr.line_to(w, h)
+    cr.close_path()
+    cr.fill()
+    rnd = random.Random(4)
+    for _ in range(int(w / 28)):  # glitter
+        tw = 0.5 + 0.5 * math.sin(t * 3 + rnd.uniform(0, 6.3))
+        cr.set_source_rgba(1, 1, 1, 0.3 + 0.6 * tw)
+        cr.arc(rnd.uniform(0, w), rnd.uniform(top + 4, h - 3), 1 + tw, 0, 2 * math.pi)
+        cr.fill()
+
+
+def _candy_ring(cr, cx, cy, r, t):
+    """A candy-cane ring around the menu disc; the stripes turn slowly."""
+    lw = 8
+    cr.set_source_rgba(0.25, 0.04, 0.05, 0.5)
+    cr.set_line_width(lw + 3)
+    cr.arc(cx, cy, r, 0, 2 * math.pi)
+    cr.stroke()
+    cr.set_source_rgb(0.98, 0.97, 0.95)
+    cr.set_line_width(lw)
+    cr.arc(cx, cy, r, 0, 2 * math.pi)
+    cr.stroke()
+    seg = 2 * math.pi * r / 64
+    cr.set_dash([seg / 2, seg / 2], (t * seg * 0.7) % seg)
+    cr.set_source_rgb(0.85, 0.12, 0.16)
+    cr.arc(cx, cy, r, 0, 2 * math.pi)
+    cr.stroke()
+    cr.set_dash([])
+    cr.set_source_rgba(1, 1, 1, 0.45)
+    cr.set_line_width(1.6)
+    cr.arc(cx, cy, r - lw * 0.22, math.pi * 1.12, math.pi * 1.7)
+    cr.stroke()
+
+
+def santa_hat(cr, x, y, r, tilt=0.0, t=0.0):
+    """A Santa hat; (x, y) = middle of the white brim, r = half the brim width, tilt in radians."""
+    cr.save()
+    cr.translate(x, y)
+    cr.rotate(tilt)
+    sway = math.sin(t * 2) * r * 0.05
+    g = cairo.LinearGradient(-r, 0, r * 1.2, 0)
+    g.add_color_stop_rgb(0, 0.9, 0.18, 0.2)
+    g.add_color_stop_rgb(1, 0.62, 0.08, 0.12)
+    cr.set_source(g)
+    cr.move_to(-r * 0.82, 0)
+    cr.curve_to(-r * 0.75, -r * 1.0, -r * 0.05, -r * 1.9, r * 0.75, -r * 1.65)
+    cr.curve_to(r * 0.98, -r * 1.58, r * 1.15 + sway, -r * 1.25, r * 1.1 + sway, -r * 0.98)
+    cr.curve_to(r * 0.98, -r * 0.55, r * 0.9, -r * 0.3, r * 0.82, 0)
+    cr.close_path()
+    cr.fill()
+    _glow(cr, r * 1.1 + sway, -r * 0.92, r * 0.5, (1, 1, 1), 0.25)
+    cr.set_source_rgb(1, 1, 1)  # pompom
+    cr.arc(r * 1.1 + sway, -r * 0.92, r * 0.21, 0, 2 * math.pi)
+    cr.fill()
+    cr.set_source_rgb(0.98, 0.98, 1)  # fur brim
+    _rounded(cr, -r * 0.98, -r * 0.2, r * 1.96, r * 0.42, r * 0.21)
+    cr.fill()
+    cr.set_source_rgba(0.75, 0.8, 0.9, 0.55)
+    for i in range(6):
+        cr.arc(-r * 0.78 + i * r * 0.31, r * 0.02 + (i % 2) * r * 0.08, r * 0.045, 0, 2 * math.pi)
+        cr.fill()
+    cr.restore()
+
+
+def _xmas_disc(cr, cx, cy, r, t, speed, opacity):
+    """Inside the menu disc: pine-green night with gold stars, a warm glow and falling snow."""
+    g = cairo.RadialGradient(cx, cy - r * 0.25, 0, cx, cy, r)
+    g.add_color_stop_rgba(0, 0.08, 0.3, 0.21, opacity)
+    g.add_color_stop_rgba(0.65, 0.04, 0.17, 0.13, opacity)
+    g.add_color_stop_rgba(1, 0.02, 0.07, 0.08, opacity)
+    cr.set_source(g)
+    cr.arc(cx, cy, r, 0, 2 * math.pi)
+    cr.fill()
+    _glow(cr, cx, cy + r * 0.9, r * 0.95, (1.0, 0.42, 0.2), 0.2)
+    _sparkles(cr, cx, cy, r, t, speed, color=XMAS_GOLD, count=26, seed=21)
+    _snowfall(cr, cx - r, cy - r, 2 * r, 2 * r, t, speed, count=48, seed=5)
+
+
+def _xmas_frame(cr, pad, w, h, cx, cy, r_disc, t, speed):
+    """Around the menu: lights, hanging baubles, holly, tree, snowman and presents on the snow, a candy-cane ring, a Santa hat."""
+    cr.save()  # snow outside the disc
+    cr.rectangle(0, 0, w, h)
+    cr.arc(cx, cy, r_disc, 0, 2 * math.pi)
+    cr.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
+    cr.clip()
+    _snowfall(cr, 0, 0, w, h, t, speed, count=70, seed=8, size=1.1)
+    cr.restore()
+    _snow_ground(cr, w, h, pad, t)
+    base = h - pad * 0.1
+    _xmas_tree(cr, pad * 0.95, base, pad * 2.0, t)
+    _snowman(cr, w - pad * 0.85, base, pad * 1.55, t)
+    _xmas_gift(cr, pad * 1.95, base + 2, pad * 0.5, (0.85, 0.15, 0.2), (1.0, 0.85, 0.35))
+    _xmas_gift(cr, pad * 2.55, base + 3, pad * 0.36, (0.15, 0.5, 0.82), (1, 1, 1))
+    _xmas_gift(cr, w - pad * 2.0, base + 2, pad * 0.46, (0.1, 0.55, 0.3), (0.95, 0.2, 0.25))
+    _candy_ring(cr, cx, cy, r_disc + 3, t)
+    _light_swag(cr, 0, pad * 0.12, w / 2, pad * 0.08, pad * 0.34, t, 12, speed, 0.0)
+    _light_swag(cr, w / 2, pad * 0.08, w, pad * 0.12, pad * 0.34, t, 12, speed, 1.4)
+    _hang_bauble(cr, w * 0.2, pad * 0.1, pad * 0.62, pad * 0.17, (0.85, 0.15, 0.2), t, 0)
+    _hang_bauble(cr, w * 0.8, pad * 0.1, pad * 0.5, pad * 0.15, (0.2, 0.45, 0.85), t, 2)
+    _hang_bauble(cr, w * 0.5, pad * 0.1, pad * 0.7, pad * 0.18, XMAS_GOLD, t, 4)
+    _holly(cr, pad * 0.42, pad * 0.62, pad * 0.5)
+    _holly(cr, w - pad * 0.42, pad * 0.62, pad * 0.5, -1)
+    a = math.radians(-52)  # a Santa hat on the rim of the disc
+    santa_hat(cr, cx + (r_disc + 2) * math.cos(a), cy + (r_disc + 2) * math.sin(a), r_disc * 0.15, a + math.pi / 2 + 0.1, t)
+
+
+def _xmas_osd_frame(cr, pad, w, h, t, speed):
+    """Around the little message box: lights, a Santa hat, holly, a tiny tree and a present on the snow."""
+    bx, by, bw, bh = pad, pad, w - 2 * pad, h - 2 * pad
+    _snowfall(cr, 0, 0, w, h, t, speed, count=24, seed=12)
+    _light_swag(cr, bx + 6, by - 2, bx + bw - 6, by - 2, pad * 0.3, t, 10, speed, 0.5, r=3.0)
+    base = by + bh + pad * 0.7
+    cr.save()
+    _rounded(cr, bx - pad * 0.3, by + bh + pad * 0.1, bw + pad * 0.6, pad * 0.95, 14)
+    cr.clip()
+    _snow_ground(cr, w, h, pad * 1.6, t)
+    cr.restore()
+    _xmas_tree(cr, pad * 0.5, base, pad * 1.6, t, 1.0)
+    _xmas_gift(cr, bx + bw - pad * 0.7, base + 1, pad * 0.5, (0.85, 0.15, 0.2), (1.0, 0.85, 0.35))
+    _holly(cr, bx + bw - pad * 0.1, by + pad * 0.15, pad * 0.42, -1)
+    santa_hat(cr, bx + pad * 0.9, by - pad * 0.02, pad * 0.36, -0.25, t)

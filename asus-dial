@@ -148,6 +148,7 @@ STATE_FILE = os.path.expanduser("~/.config/asus-dial.tool")
 BROWSER_ONLY = {ID_TO_TOOL[i] for i in acfg.BROWSER_ONLY_IDS}  # tools shown/usable only while a browser has the focus
 BROWSER_CLASSES = ("firefox", "chrome", "chromium", "brave", "vivaldi", "opera", "msedge", "microsoft-edge",
                    "librewolf", "epiphany", "zen", "floorp", "waterfox", "tor browser")
+BROWSER_PROCS = ("firefox", "chrome", "chromium", "brave", "vivaldi", "opera", "msedge", "librewolf", "epiphany", "zen", "floorp", "waterfox")
 FOCUS_CACHE_S = 0.3
 MAG_STEP = 0.25  # screen magnifier factor per zoom step
 MAG_MAX = 16.0
@@ -972,6 +973,7 @@ class Dial:
         self.divine_win = AnimWindow()
         self.dice_win, self.tomato_win, self.chip_win = AnimWindow(), AnimWindow(), AnimWindow()
         self.dice_idx = DICE_SIDES.index(6)
+        self.browser_proc_checked, self.browser_proc = 0.0, False  # is a browser process running (see _browser_running)
         self.gpu_idx = None  # card picked with the wheel in the GPU mode (None = the one in use)
         self.timer_minutes, self.timer_end, self.timer_id = 5, 0.0, 0
         self.alarm_proc = None
@@ -1354,15 +1356,43 @@ class Dial:
         return self.focus_browser
 
     def _focus_is_browser(self):
+        cls = self._x_focus_class()
+        if cls is not None:  # an X11 window has the focus: its class tells
+            return any(b in cls for b in BROWSER_CLASSES)
+        # Nothing of X11 has the focus: a native Wayland window has (GNOME does not tell which one, to anybody).
+        # Then a running browser is the best guess, so the browser modes (Tabs, Find) and the page zoom stay available.
+        return self._browser_running()
+
+    @staticmethod
+    def _x_focus_class():
+        """WM_CLASS (lower case) of the focused X11 window, or None if no X11 window has the focus."""
         try:
             root = subprocess.run(["xprop", "-root", "_NET_ACTIVE_WINDOW"], capture_output=True, text=True, timeout=0.5).stdout
             wid = root.split()[-1]
             if not wid.startswith("0x") or int(wid, 16) == 0:
-                return False
+                return None
             cls = subprocess.run(["xprop", "-id", wid, "WM_CLASS"], capture_output=True, text=True, timeout=0.5).stdout.lower()
         except (OSError, IndexError, ValueError, subprocess.SubprocessError):
-            return False
-        return any(b in cls for b in BROWSER_CLASSES)
+            return None
+        return cls if "=" in cls else None  # "not found" = a window that is gone or has no class
+
+    def _browser_running(self):
+        """True if a web browser process exists (looked up at most every 2 seconds)."""
+        now = GLib.get_monotonic_time() / 1e6
+        if now - self.browser_proc_checked > 2.0:
+            self.browser_proc_checked = now
+            found = False
+            for comm in glob.glob("/proc/[0-9]*/comm"):
+                try:
+                    with open(comm) as f:
+                        name = f.read().strip().lower()
+                except OSError:
+                    continue
+                if any(b in name for b in BROWSER_PROCS) and not any(x in name for x in ("crashpad", "handler", "sandbox", "updater")):
+                    found = True
+                    break
+            self.browser_proc = found
+        return self.browser_proc
 
     def available_tools(self):
         browser = self.in_browser()

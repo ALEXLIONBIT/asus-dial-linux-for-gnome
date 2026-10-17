@@ -122,6 +122,22 @@ def _systemctl(*args):
         return False
 
 
+STEAM_FLATPAK = "com.valvesoftware.Steam"
+
+
+def _keep_steam_off_the_variables():
+    """The Steam client crashes at start (segfault) when the session forces a GPU with these variables. Games started from Steam
+    can still use the card (Steam's launch options), so Steam, if installed as a Flatpak, simply does not receive them."""
+    if not shutil.which("flatpak"):
+        return
+    try:
+        if subprocess.run(["flatpak", "info", STEAM_FLATPAK], capture_output=True, timeout=10).returncode == 0:
+            subprocess.run(["flatpak", "override", "--user", *[f"--unset-env={k}" for k in GPU_VARS], STEAM_FLATPAK],
+                           capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def apply(gpu):
     """Makes `gpu` (an item of gpus()) the one the apps render on. Returns True if everything could be written."""
     ok = True
@@ -140,6 +156,8 @@ def apply(gpu):
             os.remove(ENV_FILE)
     except OSError:
         ok = False
+    if gpu["env"]:
+        _keep_steam_off_the_variables()
     stale = sorted(old - set(gpu["env"]))
     if stale:
         ok = _systemctl("unset-environment", *stale) and ok

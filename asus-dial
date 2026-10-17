@@ -26,6 +26,7 @@ import asus_dial_gpu as agpu  # graphics cards and the GPU mode
 import asus_dial_theme as ath  # how the menu and the messages are drawn (themes)
 
 HID_ID = "0018:00000B05:00000220"
+DIAL_REPORT_IDS = (0x01, 0x0A)  # see Dial.accept_report_id
 EV_SYN, EV_KEY, EV_REL = 0, 1, 2
 REL_X, REL_Y, REL_WHEEL, REL_WHEEL_HI_RES = 0, 1, 8, 0x0B
 BTN_LEFT, BTN_MIDDLE = 0x110, 0x112
@@ -974,6 +975,7 @@ class Dial:
         self.dice_win, self.tomato_win, self.chip_win = AnimWindow(), AnimWindow(), AnimWindow()
         self.dice_idx = DICE_SIDES.index(6)
         self.browser_proc_checked, self.browser_proc = 0.0, False  # is a browser process running (see _browser_running)
+        self.report_id, self.report_seen = None, 0.0  # which HID report kind the dial is using
         self.gpu_idx = None  # card picked with the wheel in the GPU mode (None = the one in use)
         self.timer_minutes, self.timer_end, self.timer_id = 5, 0.0, 0
         self.alarm_proc = None
@@ -1085,14 +1087,24 @@ class Dial:
         try:
             while True:
                 data = os.read(fd, 64)
-                if len(data) >= 4 and data[0] == 1:
+                if len(data) >= 4 and data[0] in DIAL_REPORT_IDS and self.accept_report_id(data[0]):
                     self.on_report(data[1] & 1, struct.unpack_from("<h", data, 2)[0])
         except BlockingIOError:
             return True
         except OSError:
             return self.hid_lost(fd)
 
+    def accept_report_id(self, rid):
+        """The dial sends its state as report 0x01 (standard) or as report 0x0a (vendor), same layout; which of the two depends on
+        the state it came up in. Follow the one that is talking and ignore the other, so a dial that sent both would not count twice."""
+        now = GLib.get_monotonic_time() / 1e6
+        if rid != self.report_id and now - self.report_seen > 2.0:  # the other kind went quiet (or never spoke): switch
+            self.report_id = rid
+        self.report_seen = now if rid == self.report_id else self.report_seen
+        return rid == self.report_id
+
     def hid_lost(self, fd):
+        self.report_id = None
         os.close(fd)
         GLib.timeout_add_seconds(2, self.connect_hid)
         return False

@@ -901,9 +901,9 @@ class App:
         sb.get_style_context().add_class("flat")
         sb.connect("clicked", lambda *_: SettingsWindow(self))
         hb.pack_end(sb)
-        mb = Gtk.Button(image=Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic", Gtk.IconSize.BUTTON), tooltip_text=T("mic"))
+        self.head_mic = mb = Gtk.ToggleButton(tooltip_text=T("mic"))
         mb.get_style_context().add_class("flat")
-        mb.connect("clicked", lambda *_: self.toggle_voice())
+        mb.connect("toggled", self.on_mic_clicked)
         hb.pack_end(mb)
 
         main = Gtk.Box()
@@ -988,10 +988,10 @@ class App:
         comp.pack_start(isw, True, True, 0)
         self.ph = Gtk.Label(label=T("placeholder"), xalign=0)
         self.ph.get_style_context().add_class("hint")
-        mic = Gtk.Button(image=Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic", Gtk.IconSize.LARGE_TOOLBAR), tooltip_text=T("mic"))
+        self.mic_btn = mic = Gtk.ToggleButton(tooltip_text=T("mic"))
         mic.get_style_context().add_class("iconbtn")
         mic.set_valign(Gtk.Align.END)
-        mic.connect("clicked", lambda *_: self.toggle_voice())
+        mic.connect("toggled", self.on_mic_clicked)
         comp.pack_start(mic, False, False, 0)
         self.speak_btn = Gtk.ToggleButton(image=Gtk.Image.new_from_icon_name("audio-volume-high-symbolic", Gtk.IconSize.LARGE_TOOLBAR),
                                           tooltip_text=T("speak_tip"), active=self.cfg["auto_speak"])
@@ -1073,6 +1073,7 @@ class App:
             b.connect("toggled", handler)
             ctl.pack_start(b, False, False, 0)
         self.show_voice_icons()
+        self.show_mic_icons()
         vb.pack_start(ctl, False, False, 0)
         close = Gtk.Button(label="✕  " + T("voice_off"))
         close.get_style_context().add_class("chip")
@@ -1103,12 +1104,14 @@ class App:
         if key == "auto_speak":
             if self.speak_btn.get_active() != self.cfg["auto_speak"]:
                 self.speak_btn.set_active(self.cfg["auto_speak"])
+            if self.vspk_btn.get_active() != self.cfg["auto_speak"]:
+                self.vspk_btn.set_active(self.cfg["auto_speak"])
             if self.voice:
                 if self.cfg["auto_speak"]:
                     self.voice.hush.clear()
-                elif not self.voice_on:
+                else:
                     self.voice.hush.set()  # also drops the sentence being synthesized right now
-            if not self.cfg["auto_speak"] and not self.voice_on:
+            if not self.cfg["auto_speak"]:
                 self.barge_in(stop_gen=False)
                 self.spoken_upto = len(core.speakable(self.buf))  # what is still coming is not read later if it is switched on again
         if key == "orb" or key == "theme":
@@ -1460,6 +1463,30 @@ class App:
             core.log(f"read aloud: {e!r}")
             GLib.idle_add(self.toast, str(e)[:120])
 
+    def mic_is_on(self):
+        return self.voice_on and not (self.voice and self.voice.mute_mic.is_set())
+
+    def show_mic_icons(self):
+        """The microphone buttons of the chat (top bar and message bar) show whether the microphone is listening."""
+        on = self.mic_is_on()
+        self._sync = True
+        for b, size in ((self.mic_btn, Gtk.IconSize.LARGE_TOOLBAR), (self.head_mic, Gtk.IconSize.BUTTON)):
+            b.set_active(on)
+            b.set_image(Gtk.Image.new_from_icon_name("audio-input-microphone-symbolic" if on else "microphone-disabled-symbolic", size))
+            b.show_all()
+        self._sync = False
+
+    def on_mic_clicked(self, b):
+        if getattr(self, "_sync", False):
+            return
+        if self.voice_on and b.get_active():  # it was muted in the voice mode: listening again
+            self.vmic_btn.set_active(True)
+        elif self.voice_on:
+            self.vmic_btn.set_active(False)
+        else:
+            self.toggle_voice()
+        self.show_mic_icons()
+
     def show_voice_icons(self):
         for b, on, off in ((self.vmic_btn, "audio-input-microphone-symbolic", "microphone-disabled-symbolic"),
                            (self.vspk_btn, "audio-volume-high-symbolic", "audio-volume-muted-symbolic")):
@@ -1469,6 +1496,7 @@ class App:
     def on_vmic_toggled(self, b):
         self.show_voice_icons()
         if not self.voice:
+            self.show_mic_icons()
             return
         if b.get_active():
             self.voice.mute_mic.clear()
@@ -1476,16 +1504,12 @@ class App:
         else:
             self.voice.mute_mic.set()
             self.set_vstate("idle", T("mic_muted"))
+        self.show_mic_icons()
 
     def on_vspk_toggled(self, b):
         self.show_voice_icons()
-        if not self.voice:
-            return
-        if b.get_active():
-            self.voice.hush.clear()
-        else:
-            self.voice.hush.set()
-            self.barge_in(stop_gen=False)
+        if self.speak_btn.get_active() != b.get_active():  # one switch for the chat and the voice mode
+            self.speak_btn.set_active(b.get_active())
 
     def toggle_voice(self):
         if self.voice_on:
@@ -1493,7 +1517,7 @@ class App:
             return False
         self.voice_on = True
         self.vmic_btn.set_active(True)  # every voice session starts with both on
-        self.vspk_btn.set_active(True)
+        self.speak_btn.set_active(True)
         self.voice_rev.show()
         self.overlay.set_overlay_pass_through(self.voice_rev, False)
         self.voice_rev.set_reveal_child(True)
@@ -1507,6 +1531,7 @@ class App:
         self.voice.mute_mic.clear()
         self.voice_orb.level_fn = lambda: self.voice.level if self.voice and self.voice_orb.state in ("listening", "speaking") else None
         threading.Thread(target=self.voice_loop, daemon=True).start()
+        self.show_mic_icons()
         return False
 
     def voice_stop(self):
@@ -1519,11 +1544,8 @@ class App:
             self.voice.cancel.set()
             self.voice.stop_playing()
             self.voice.mute_mic.clear()
-            if self.cfg["auto_speak"]:  # back to what the speaker button of the chat says
-                self.voice.hush.clear()
-            else:
-                self.voice.hush.set()
         self.speak_q.put(None)
+        self.show_mic_icons()
 
     def barge_in(self, stop_gen=True):
         if self.voice:

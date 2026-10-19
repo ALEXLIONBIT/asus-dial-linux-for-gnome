@@ -998,6 +998,7 @@ class App:
         self.speak_btn.get_style_context().add_class("iconbtn")
         self.speak_btn.set_valign(Gtk.Align.END)
         self.speak_btn.connect("toggled", self.on_speak_toggled)
+        self.show_speak_icon()
         comp.pack_start(self.speak_btn, False, False, 0)
         self.send_btn = Gtk.Button(image=Gtk.Image.new_from_icon_name("go-up-symbolic", Gtk.IconSize.LARGE_TOOLBAR))
         self.send_btn.get_style_context().add_class("sendbtn")
@@ -1127,6 +1128,10 @@ class App:
         if ev.keyval == Gdk.KEY_Escape and self.voice_on:
             self.toggle_voice()
             return True
+        focus = self.win.get_focus()
+        if (not ctrl and ev.string.strip() and ev.string.isprintable() and self.input.get_sensitive()
+                and not isinstance(focus, (Gtk.Entry, Gtk.TextView, Gtk.SearchEntry, Gtk.SpinButton))):
+            self.input.grab_focus()  # typing while a list row or button has the focus starts the message
         return False
 
     def on_close(self, *_):
@@ -1257,6 +1262,7 @@ class App:
         self.empty_rev.set_reveal_child(not self.chat["messages"])
         self.stick = True
         self.refresh_chats()
+        self.input.grab_focus()  # the clicked row was just rebuilt: without this the keys go nowhere
 
     def delete_chat(self, cid):
         self.store.delete(cid)
@@ -1505,8 +1511,15 @@ class App:
             if piece:
                 self.speak_q.put(piece)
 
+    def show_speak_icon(self):
+        on = self.speak_btn.get_active()
+        self.speak_btn.set_image(Gtk.Image.new_from_icon_name("audio-volume-high-symbolic" if on else "audio-volume-muted-symbolic",
+                                                              Gtk.IconSize.LARGE_TOOLBAR))
+        self.speak_btn.show_all()
+
     def on_speak_toggled(self, b):
         on = b.get_active()
+        self.show_speak_icon()
         self.cfg.set("auto_speak", on)
         self.toast(T("speak_on" if on else "speak_off"))
         if on:

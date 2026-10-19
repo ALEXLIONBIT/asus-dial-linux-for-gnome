@@ -103,6 +103,11 @@ STR = {
     "voice_loading": ("Preparing voice…", "Preparando la voz…", "Preparo la voce…"),
     "voice_hint": ("Just talk. Click the orb to interrupt.", "Habla. Haz clic en la esfera para interrumpir.",
                    "Parla pure. Clicca la sfera per interrompere."),
+    "mic_muted": ("Microphone off: click it to talk again", "Micrófono apagado: haz clic para volver a hablar",
+                  "Microfono spento: cliccalo per tornare a parlare"),
+    "voice_mic_tip": ("Microphone on / off", "Micrófono encendido / apagado", "Microfono acceso / spento"),
+    "voice_spk_tip": ("Voice on / off (answers stay as text)", "Voz encendida / apagada (las respuestas quedan en texto)",
+                      "Voce accesa / spenta (le risposte restano scritte)"),
     "voice_off": ("Close voice mode", "Cerrar modo voz", "Chiudi la modalità vocale"),
     "mic": ("Voice mode", "Modo voz", "Modalità vocale"),
     "send": ("Send", "Enviar", "Invia"),
@@ -832,6 +837,7 @@ class Voice:
         self.player = None
         self.level = 0.0  # 0..1, what the orb shows (mic while listening, speech while speaking)
         self.cancel = threading.Event()
+        self.mute_mic = threading.Event()  # voice mode: the microphone button is off
         self.hush = threading.Event()  # the speaker button is off: whatever is still being synthesized is dropped
         self.lang = LANG[0]  # language of the last thing the user said
         self.tmp = tempfile.mkdtemp(prefix="adai-voice-")
@@ -887,7 +893,7 @@ class Voice:
         pre, voiced, silent_n, started, calib, floor_n = [], [], 0, False, [], 0
         t_start = time.time()
         try:
-            while not self.cancel.is_set():
+            while not self.cancel.is_set() and not self.mute_mic.is_set():
                 b = p.stdout.read(chunk)
                 if len(b) < chunk:
                     return None
@@ -915,7 +921,7 @@ class Voice:
         finally:
             p.kill()
             self.level = 0.0
-        if not started or len(voiced) < 22:
+        if self.mute_mic.is_set() or not started or len(voiced) < 22:
             return None
         path = os.path.join(self.tmp, f"in-{int(time.time() * 1000)}.wav")
         with wave.open(path, "wb") as f:

@@ -1064,6 +1064,16 @@ class App:
         vh = Gtk.Label(label=T("voice_hint") + "\n" + T("voice_nothink"), justify=Gtk.Justification.CENTER)
         vh.get_style_context().add_class("hint")
         vb.pack_start(vh, False, False, 0)
+        ctl = Gtk.Box(spacing=18, halign=Gtk.Align.CENTER)
+        ctl.set_margin_top(8)
+        self.vmic_btn = Gtk.ToggleButton(active=True, tooltip_text=T("voice_mic_tip"))
+        self.vspk_btn = Gtk.ToggleButton(active=True, tooltip_text=T("voice_spk_tip"))
+        for b, handler in ((self.vmic_btn, self.on_vmic_toggled), (self.vspk_btn, self.on_vspk_toggled)):
+            b.get_style_context().add_class("iconbtn")
+            b.connect("toggled", handler)
+            ctl.pack_start(b, False, False, 0)
+        self.show_voice_icons()
+        vb.pack_start(ctl, False, False, 0)
         close = Gtk.Button(label="✕  " + T("voice_off"))
         close.get_style_context().add_class("chip")
         close.set_halign(Gtk.Align.CENTER)
@@ -1450,11 +1460,40 @@ class App:
             core.log(f"read aloud: {e!r}")
             GLib.idle_add(self.toast, str(e)[:120])
 
+    def show_voice_icons(self):
+        for b, on, off in ((self.vmic_btn, "audio-input-microphone-symbolic", "microphone-disabled-symbolic"),
+                           (self.vspk_btn, "audio-volume-high-symbolic", "audio-volume-muted-symbolic")):
+            b.set_image(Gtk.Image.new_from_icon_name(on if b.get_active() else off, Gtk.IconSize.LARGE_TOOLBAR))
+            b.show_all()
+
+    def on_vmic_toggled(self, b):
+        self.show_voice_icons()
+        if not self.voice:
+            return
+        if b.get_active():
+            self.voice.mute_mic.clear()
+            self.set_vstate("listening")
+        else:
+            self.voice.mute_mic.set()
+            self.set_vstate("idle", T("mic_muted"))
+
+    def on_vspk_toggled(self, b):
+        self.show_voice_icons()
+        if not self.voice:
+            return
+        if b.get_active():
+            self.voice.hush.clear()
+        else:
+            self.voice.hush.set()
+            self.barge_in(stop_gen=False)
+
     def toggle_voice(self):
         if self.voice_on:
             self.voice_stop()
             return False
         self.voice_on = True
+        self.vmic_btn.set_active(True)  # every voice session starts with both on
+        self.vspk_btn.set_active(True)
         self.voice_rev.show()
         self.overlay.set_overlay_pass_through(self.voice_rev, False)
         self.voice_rev.set_reveal_child(True)
@@ -1465,6 +1504,7 @@ class App:
             self.voice = core.Voice(self.cfg, self.ui)
         self.voice.cancel.clear()
         self.voice.hush.clear()
+        self.voice.mute_mic.clear()
         self.voice_orb.level_fn = lambda: self.voice.level if self.voice and self.voice_orb.state in ("listening", "speaking") else None
         threading.Thread(target=self.voice_loop, daemon=True).start()
         return False
@@ -1478,6 +1518,11 @@ class App:
         if self.voice:
             self.voice.cancel.set()
             self.voice.stop_playing()
+            self.voice.mute_mic.clear()
+            if self.cfg["auto_speak"]:  # back to what the speaker button of the chat says
+                self.voice.hush.clear()
+            else:
+                self.voice.hush.set()
         self.speak_q.put(None)
 
     def barge_in(self, stop_gen=True):
@@ -1579,6 +1624,9 @@ class App:
         try:
             v.start()
             while self.voice_on and not v.cancel.is_set():
+                if v.mute_mic.is_set():
+                    time.sleep(0.15)
+                    continue
                 GLib.idle_add(self.set_vstate, "listening")
                 wav = v.listen()
                 if not wav:

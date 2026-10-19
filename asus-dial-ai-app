@@ -23,6 +23,7 @@ import cairo  # noqa: E402
 from gi.repository import Gdk, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
 import asus_dial_ai_core as core  # noqa: E402
+import asus_dial_ai_tools as tools  # noqa: E402
 from asus_dial_ai_core import MODELS, T, model_by_id, parse_segments  # noqa: E402
 
 SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "asus-dial-ai.sock")
@@ -801,6 +802,7 @@ class SettingsWindow(Gtk.Window):
         self.row(g, T("s_tokens"), self.spin("max_tokens", 64, 8192, 64))
         self.row(g, T("s_think"), self.switch("show_thinking"))
         self.row(g, T("s_enter"), self.switch("enter_sends"))
+        self.row(g, T("s_tools"), self.switch("dial_tools"))
         return g
 
     def page_voice(self):
@@ -1397,7 +1399,20 @@ class App:
         self.buf, self.spoken_upto = "", 0
         self.gen_done.clear()
         GLib.timeout_add(70, self.flush)
+        acts = tools.quick(text) if self.cfg["dial_tools"] else None
+        if acts:  # a plain command for the PC: done at once, no need to ask the model
+            threading.Thread(target=self.do_commands, args=(m, acts), daemon=True).start()
+            return
         threading.Thread(target=self.generate, args=(m, self.history(), not self.voice_on), daemon=True).start()
+
+    def do_commands(self, m, acts):
+        err = None
+        try:
+            self.on_text(tools.execute(acts, core.LANG[0]))
+        except Exception as e:  # noqa: BLE001
+            core.log(f"commands: {e!r}")
+            err = f"{type(e).__name__}: {e}"
+        GLib.idle_add(self.finish, m, err)
 
     def generate(self, m, hist, think):
         err = None

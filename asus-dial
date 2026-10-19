@@ -172,6 +172,9 @@ AI_LEVEL_COLORS = ((0.24, 0.86, 0.52), (1.0, 0.76, 0.2), (1.0, 0.35, 0.3), "rain
 AI_FILE = os.path.expanduser("~/.config/asus-dial.ai")
 AI_SCRIPT = "asus-dial-ai-app"
 AI_SOCKET = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "asus-dial-ai.sock")
+API_SOCKET = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "asus-dial.sock")  # the AI app asks the dial to act here
+BROWSER_ZOOMS = (25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500)  # the page zoom levels of the browsers
+KEY_T, KEY_W = 20, 17
 ROBOT_ANIM_S, ROBOT_OPEN_AT_S = 2.9, 2.2
 RICK_ANIM_S = 3.4  # length of the divine animation
 RICK_OPEN_AT_S = 2.55  # when, during the white flash, the browser is opened
@@ -988,6 +991,7 @@ class Dial:
         self.mag = self._settings("org.gnome.desktop.a11y.magnifier")
         self.watch_id = 0
         self.connect_hid()
+        self.start_api()
 
     # --- config file (written by asus-dial-manager; reloaded by itself when it changes) ---
     @staticmethod
@@ -1932,6 +1936,239 @@ class Dial:
         self.ui.tap(KEY_TAB)
         self.ui.emit((EV_KEY, KEY_LEFTALT, 0))
         self.show_label(L("prev_window"))
+
+    # --- API: everything the wheel can do, by name (the AI app calls it; one JSON line in, one JSON line out) ---
+    def start_api(self):
+        try:
+            os.remove(API_SOCKET)
+        except OSError:
+            pass
+        try:
+            svc = Gio.SocketService()
+            svc.add_address(Gio.UnixSocketAddress.new(API_SOCKET), Gio.SocketType.STREAM, Gio.SocketProtocol.DEFAULT, None)
+            svc.connect("incoming", self.on_api_connection)
+            svc.start()
+            os.chmod(API_SOCKET, 0o600)
+            self.api_service = svc
+        except (GLib.Error, OSError) as e:
+            print(f"asus-dial: no API socket ({e})", file=sys.stderr)
+
+    def on_api_connection(self, _svc, conn, _src):
+        try:
+            conn.get_socket().set_timeout(2)
+            raw = conn.get_input_stream().read_bytes(65536, None).get_data()
+            reply = self.api(json.loads(raw.decode()))
+            conn.get_output_stream().write_all(json.dumps(reply).encode() + b"\n", None)
+            conn.close(None)
+        except (GLib.Error, ValueError, OSError):
+            pass
+        return True
+
+    def api(self, req):
+        fn = getattr(self, "api_" + str(req.get("do", "")), None)
+        if not fn:
+            return {"ok": False, "error": "unknown action"}
+        try:
+            return {"ok": True, **(fn(req.get("args") or {}) or {})}
+        except (ValueError, KeyError, TypeError, OSError, GLib.Error, subprocess.SubprocessError) as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    @staticmethod
+    def _num(a, key, default=None):
+        try:
+            return float(a[key])
+        except (KeyError, TypeError, ValueError):
+            if default is None:
+                raise ValueError(f"{key} is needed")
+            return default
+
+    def api_status(self, _a):
+        v, muted = self.get_volume()
+        return {"volume": round(v * 100), "muted": muted, "brightness": self.get_brightness(), "night_light": self.night_is_on(),
+                "timer_left_s": round(self.timer_left()) if self.timer_end else 0, "dial_mode": acfg.BUILTIN_IDS[self.tool] if self.tool < CUSTOM_BASE else "custom",
+                "screen_zoom": self.get_magnifier()}
+
+    def api_volume(self, a):
+        mode = a.get("mode", "set")
+        sink = "@DEFAULT_AUDIO_SINK@"
+        if mode in ("mute", "unmute", "toggle"):
+            subprocess.run(["wpctl", "set-mute", sink, {"mute": "1", "unmute": "0", "toggle": "toggle"}[mode]])
+        elif mode == "set":
+            subprocess.run(["wpctl", "set-mute", sink, "0"])
+            subprocess.run(["wpctl", "set-volume", "-l", "1.0", sink, f"{round(max(0, min(100, self._num(a, 'value'))))}%"])
+        else:
+            step = round(abs(self._num(a, "value", 10)))
+            subprocess.run(["wpctl", "set-volume", "-l", "1.0", sink, f"{step}%{'+' if mode == 'up' else '-'}"])
+        self.show_volume()
+        v, muted = self.get_volume()
+        return {"volume": round(v * 100), "muted": muted}
+
+    def api_brightness(self, a):
+        mode, now = a.get("mode", "set"), self.get_brightness()
+        step = abs(self._num(a, "value", 10))
+        target = self._num(a, "value") if mode == "set" else now + (step if mode == "up" else -step)
+        self.set_brightness(max(1, min(100, round(target))))
+        self.show_brightness()
+        return {"brightness": self.get_brightness(), "before": now}
+
+    def api_zoom(self, a):
+        """percent = the zoom wanted (100 = normal, 150 = one and a half times); or mode in / out / reset."""
+        mode = a.get("mode", "set")
+        browser = self.in_browser()
+        if mode == "reset":
+            percent = 100
+        elif mode in ("in", "out"):
+            percent = None
+        else:
+            percent = max(25, min(500 if browser else MAG_MAX * 100, self._num(a, "percent")))
+        if browser:
+            if percent is not None:
+                near = min(BROWSER_ZOOMS, key=lambda z: abs(z - percent))
+                self.ui.tap(KEY_0, ctrl=True)  # back to 100 %, then count the steps up or down
+                steps = BROWSER_ZOOMS.index(near) - BROWSER_ZOOMS.index(100)
+                label = near
+            else:
+                steps = 1 if mode == "in" else -1
+                label = None
+            for _ in range(abs(steps)):
+                self.ui.emit((EV_KEY, KEY_LEFTCTRL, 1))
+                self.ui.emit((EV_REL, REL_WHEEL, 1 if steps > 0 else -1))
+                self.ui.emit((EV_KEY, KEY_LEFTCTRL, 0))
+            self.show_label(f"🔍 Zoom {label}%" if label else "🔍 Zoom")
+            return {"zoom": label, "where": "browser"}
+        factor = percent / 100 if percent is not None else self.get_magnifier() + (MAG_STEP if mode == "in" else -MAG_STEP)
+        f = self.set_magnifier(factor)
+        self.show_label(L("screen_zoom", f=f), (f - 1) / (MAG_MAX - 1))
+        return {"zoom": round(f * 100), "where": "screen"}
+
+    def api_scroll(self, a):
+        n = max(1, min(60, round(self._num(a, "amount", 5))))
+        down = a.get("direction", "down") == "down"
+        for _ in range(n):
+            self.ui.emit((EV_REL, REL_WHEEL, -1 if down else 1))
+        self.show_label(f"↕ {'▼' if down else '▲'} {n}")
+
+    def api_media(self, a):
+        act = a.get("action", "play_pause")
+        if act in ("play", "pause", "play_pause"):
+            if not self.mpris({"play": "Play", "pause": "Pause"}.get(act, "PlayPause")):
+                self.ui.tap(KEY_PLAYPAUSE)
+            self.show_label(L("play_pause"))
+        elif act in ("next", "previous"):
+            if not self.mpris("Next" if act == "next" else "Previous"):
+                raise ValueError("no media player answered")
+            self.show_label("⏭" if act == "next" else "⏮")
+        elif act == "seek":
+            sec = self._num(a, "seconds")
+            if not self.mpris("Seek", GLib.Variant("(x)", (int(sec * 1_000_000),))):
+                for _ in range(max(1, round(abs(sec) / 5))):
+                    self.ui.tap(KEY_RIGHT if sec > 0 else KEY_LEFT)
+            self.show_label(L("seek", icon="⏩" if sec > 0 else "⏪", n=abs(round(sec))))
+        elif act == "speed":
+            self.set_speed(self._num(a, "factor"))
+        else:
+            raise ValueError("unknown media action")
+        return {}
+
+    def api_tab(self, a):
+        act = a.get("action", "next")
+        if act in ("next", "previous"):
+            self.ui.tap(KEY_PAGEDOWN if act == "next" else KEY_PAGEUP, ctrl=True)
+            self.show_label(L("tab_next" if act == "next" else "tab_prev"))
+        elif act == "new":
+            self.ui.tap(KEY_T, ctrl=True)
+            self.show_label("🗂 +")
+        elif act == "close":
+            self.ui.tap(KEY_W, ctrl=True)
+            self.show_label("🗂 ✕")
+        elif act == "reopen":
+            self.ui.tap(KEY_T, ctrl=True, shift=True)
+            self.show_label("🗂 ↺")
+        else:
+            raise ValueError("unknown tab action")
+
+    def api_timer(self, a):
+        if a.get("cancel"):
+            self.timer_cancel()
+            self.show_label(L("timer_cancelled"))
+            return {}
+        if self.timer_end:
+            self.timer_cancel()
+        self.timer_minutes = max(1, min(TIMER_MAX, round(self._num(a, "minutes"))))
+        self.timer_click()
+        return {"minutes": self.timer_minutes}
+
+    def api_night_light(self, a):
+        if not self.color:
+            raise ValueError("no night light")
+        state = a.get("state", "toggle")
+        if state == "toggle":
+            state = "off" if self.night_is_on() else "on"
+        if "kelvin" in a:
+            self.color.set_uint("night-light-temperature", int(max(NIGHT_MIN, min(NIGHT_MAX, self._num(a, "kelvin")))))
+        if state == "on":
+            self.night_on()
+        else:
+            self.night_off()
+        self.show_label(L("night_on", k=self.color.get_uint("night-light-temperature")) if state == "on" else L("night_off"))
+        return {"night_light": state == "on"}
+
+    def api_keyboard_light(self, a):
+        level = a.get("level")
+        if level is None:
+            level = KEYLIGHT_LEVELS if a.get("state", "on") == "on" else 0
+        self.set_keylight(round(float(level)))
+
+    def api_windows(self, a):
+        if a.get("action", "switch") == "switch":
+            self.windows_click()
+        else:
+            self.windows_step(1 if a["action"] == "next" else -1)
+            GLib.timeout_add(400, lambda: (self.release_alt(), False)[1])
+
+    def api_find(self, a):
+        act = a.get("action", "next")
+        if act == "open":
+            self.ui.tap(KEY_F, ctrl=True)
+        else:
+            self.ui.tap(KEY_F3, shift=act == "previous")
+        self.show_label(L("find_open" if act == "open" else "find_next" if act == "next" else "find_prev"))
+
+    def api_dice(self, a):
+        sides = int(self._num(a, "sides", 6))
+        result = random.randint(1, max(2, min(100, sides)))
+        self.dice_win.play(make_dice_draw(sides if sides in DICE_SIDES else 6, result), DICE_SHOW_S, size=(420, 420))
+        return {"result": result, "sides": sides}
+
+    def api_language(self, a):
+        code = a.get("lang", "")
+        if code not in LANGS:
+            raise ValueError("language must be one of " + ", ".join(LANGS))
+        self.set_language(LANGS.index(code))
+
+    def api_gpu(self, a):
+        cards = agpu.gpus(refresh=True)
+        want = a.get("which", "default")
+        pick = {"integrated": next((g for g in cards if g["integrated"]), None), "dedicated": next((g for g in cards if not g["integrated"]), None),
+                "default": cards[0] if cards else None}.get(want)
+        if not pick or len(cards) < 2:
+            raise ValueError("there is no such graphics card")
+        self.gpu_idx = cards.index(pick)
+        self.gpu_click()
+        return {"gpu": pick["name"]}
+
+    def api_lock(self, _a):
+        subprocess.run(["loginctl", "lock-session"], timeout=5)
+
+    def api_mode(self, a):
+        """Puts the wheel in one of its modes (volume, brightness, zoom, ...), as the radial menu does."""
+        mid = a.get("name", "")
+        if mid not in ID_TO_TOOL or mid in ("power", "rick"):
+            raise ValueError("unknown or not allowed mode")
+        self.set_tool(ID_TO_TOOL[mid])
+        self.save_tool()
+        self.show_label(f"{ticon(self.tool)} {tname(self.tool)}")
+        return {"dial_mode": mid}
 
     # --- OSD ---
     def show_label(self, label, value=None):

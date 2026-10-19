@@ -21,6 +21,8 @@ import urllib.request
 import uuid
 import wave
 
+import asus_dial_ai_tools as tools
+
 HOME = os.path.expanduser("~/.local/share/asus-dial-ai")
 CONFIG = os.path.expanduser("~/.config/asus-dial/ai-app.json")
 CHATS = os.path.join(HOME, "chats")
@@ -203,6 +205,8 @@ STR = {
     "s_vvar": ("Expressiveness", "Expresividad", "Espressività"),
     "s_vfx": ("Effect", "Efecto", "Effetto"),
     "s_test": ("Test the voice", "Probar la voz", "Prova la voce"),
+    "s_tools": ("The AI can control the PC (volume, brightness, zoom, tabs, timer...)", "La IA puede controlar el PC (volumen, brillo, zoom, pestañas, temporizador...)",
+                "L'AI può controllare il PC (volume, luminosità, zoom, schede, timer...)"),
     "s_autospeak": ("Read answers aloud in the normal chat too", "Leer las respuestas también en el chat normal",
                     "Leggi le risposte ad alta voce anche nella chat normale"),
     "test_text": ("Hi! This is how I sound.", "¡Hola! Así es como sueno.", "Ciao! Ecco come suono."),
@@ -259,7 +263,7 @@ DEFAULTS = dict(
     system_prompt="", temperature=0.7, max_tokens=1024, max_tokens_max=192, show_thinking=True, enter_sends=True,
     tts=True, auto_speak=False, voice_lang="auto", stt_size="small", voice_preset="aurora", voice_speed=1.0, voice_pitch=1.0,
     voice_volume=1.0, voice_var=1.0, voice_fx="none", compression="4bit", delete_original=True,
-    sidebar=True, win_w=1100, win_h=760,
+    sidebar=True, win_w=1100, win_h=760, dial_tools=True,
 )
 
 
@@ -741,14 +745,26 @@ class Engine:
     # ----- chat
     def stream(self, m, messages, on_text, think=True):
         """Streams the answer, calling on_text(delta). Returns when finished or stopped.
-        think=False asks the model not to reason first (voice mode wants short, fast answers)."""
+        think=False asks the model not to reason first (voice mode wants short, fast answers).
+        With the dial tools on, the model may ask for PC actions; they are run here and the answer ends with what was done."""
         self.stop.clear()
         sysmsg = self.cfg["system_prompt"].strip()
+        flt = None
+        if self.cfg["dial_tools"] and tools.maybe_action(messages[-1]["content"] if messages else ""):  # the long tool list only when it can matter
+            sysmsg = (sysmsg + "\n\n" if sysmsg else "") + tools.PROMPT
+            flt = tools.ToolFilter(on_text)
+            on_text = flt.feed
+        if not think:
+            sysmsg = (sysmsg + "\n\n" if sysmsg else "") + "Answer in at most two short sentences: you are being listened to."
         msgs = ([{"role": "system", "content": sysmsg}] if sysmsg else []) + messages
         if m["backend"] == "ollama":
             self._stream_ollama(m, msgs, on_text, think)
         else:
             self._stream_air(m, msgs[-8:], on_text)
+        if flt and not self.stop.is_set():
+            done = flt.finish(LANG[0])
+            if done:
+                flt.on_text(("\n\n" if flt.said else "") + done)
 
     def _stream_ollama(self, m, msgs, on_text, think=True):
         body = {"model": m["tag"], "messages": msgs, "stream": True, "keep_alive": "30m",
@@ -914,7 +930,7 @@ class Voice:
                 else:
                     voiced.append(b)
                     silent_n = silent_n + 1 if r < thr else 0
-                    if silent_n > 45 or len(voiced) > 1500:  # 0.9 s of silence, or 30 s
+                    if silent_n > 28 or len(voiced) > 1500:  # 0.56 s of silence, or 30 s
                         break
                 if not started and time.time() - t_start > 120:
                     return None

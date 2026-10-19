@@ -832,6 +832,7 @@ class Voice:
         self.player = None
         self.level = 0.0  # 0..1, what the orb shows (mic while listening, speech while speaking)
         self.cancel = threading.Event()
+        self.hush = threading.Event()  # the speaker button is off: whatever is still being synthesized is dropped
         self.lang = LANG[0]  # language of the last thing the user said
         self.tmp = tempfile.mkdtemp(prefix="adai-voice-")
         self.stt_ready = False
@@ -939,7 +940,7 @@ class Voice:
     def speak(self, text):
         """Synthesizes and plays text; blocks until it is over or cancelled."""
         text = text.strip()
-        if not text or not self.cfg["tts"]:
+        if not text or not self.cfg["tts"] or self.hush.is_set():
             return
         lang = self.cfg["voice_lang"] if self.cfg["voice_lang"] != "auto" else self.lang
         lang = lang if lang in VOICE_FOR else "en"
@@ -951,6 +952,12 @@ class Voice:
                     pitch=c["voice_pitch"], fx=c["voice_fx"])
         self._wait("spoken", T("step_voice"))
         self.ui.progress_done()
+        if self.hush.is_set():
+            try:
+                os.remove(wav)
+            except OSError:
+                pass
+            return
         self.play(wav)
 
     def play(self, wav):

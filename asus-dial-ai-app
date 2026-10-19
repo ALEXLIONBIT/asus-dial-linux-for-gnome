@@ -1092,8 +1092,14 @@ class App:
         if key == "auto_speak":
             if self.speak_btn.get_active() != self.cfg["auto_speak"]:
                 self.speak_btn.set_active(self.cfg["auto_speak"])
+            if self.voice:
+                if self.cfg["auto_speak"]:
+                    self.voice.hush.clear()
+                elif not self.voice_on:
+                    self.voice.hush.set()  # also drops the sentence being synthesized right now
             if not self.cfg["auto_speak"] and not self.voice_on:
                 self.barge_in(stop_gen=False)
+                self.spoken_upto = len(core.speakable(self.buf))  # what is still coming is not read later if it is switched on again
         if key == "orb" or key == "theme":
             self.queue_all()
         if key == "sidebar":
@@ -1431,6 +1437,7 @@ class App:
             if self.voice is None:
                 self.voice = core.Voice(self.cfg, self.ui)
             self.voice.cancel.clear()
+            self.voice.hush.clear()
             self.voice.start(stt=False)
             self.voice.speak(core.speakable(text))
         except Exception as e:  # noqa: BLE001
@@ -1451,6 +1458,7 @@ class App:
         if self.voice is None:
             self.voice = core.Voice(self.cfg, self.ui)
         self.voice.cancel.clear()
+        self.voice.hush.clear()
         self.voice_orb.level_fn = lambda: self.voice.level if self.voice and self.voice_orb.state in ("listening", "speaking") else None
         threading.Thread(target=self.voice_loop, daemon=True).start()
         return False

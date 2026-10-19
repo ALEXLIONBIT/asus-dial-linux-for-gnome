@@ -1621,7 +1621,10 @@ class Dial:
         if not os.path.exists(script):
             script = os.path.expanduser(f"~/.local/bin/{AI_SCRIPT}")
         try:
-            subprocess.Popen([script, "--model", arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            # the dial itself runs on X11 (GDK_BACKEND=x11); the chat must not inherit it, or GNOME cannot tell which launcher
+            # (name, icon) the window belongs to
+            env = {k: v for k, v in os.environ.items() if k != "GDK_BACKEND"}
+            subprocess.Popen([script, "--model", arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, env=env)
         except OSError:
             self.show_label(L("ai_no_terminal"))
         return False

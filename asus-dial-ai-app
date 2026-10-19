@@ -852,6 +852,7 @@ class SettingsWindow(Gtk.Window):
 class App:
     def __init__(self, args):
         GLib.set_prgname("asus-dial-ai")
+        Gdk.set_program_class("asus-dial-ai")  # the X11 window class, so the launcher icon matches there too
         GLib.set_application_name(T("app"))
         self.cfg = core.Config()
         if args.model in core.MODEL_IDS:

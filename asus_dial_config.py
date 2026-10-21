@@ -18,19 +18,19 @@ LANG_NAMES = {"en": "English", "es": "Español", "it": "Italiano"}
 
 # Built-in modes. The position in these lists is the tool number used inside the driver.
 BUILTIN_IDS = ["scroll", "volume", "brightness", "zoom", "video", "tabs", "arrows", "house", "power",
-               "dice", "timer", "speed", "night", "windows", "find", "keylight", "language", "rick", "ai", "gpu"]
-ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨", "🌐", "✨", "🤖", "🎮"]
+               "dice", "timer", "speed", "night", "windows", "find", "keylight", "language", "rick", "ai", "gpu", "suspend"]
+ICONS = ["↕", "🔊", "☀", "🔍", "▶", "🗂", "↔", "🏠", "⏻", "🎲", "⏲", "⏩", "🌙", "🪟", "🔎", "⌨", "🌐", "✨", "🤖", "🎮", "😴"]
 NAMES_L = {
     "en": ["Scroll", "Volume", "Brightness", "Zoom", "Video", "Tabs", "Arrows", "House", "Power off",
-           "Dice", "Timer", "Speed", "Light", "Windows", "Find", "Keyboard", "Language", "Rickroll", "AI", "GPU"],
+           "Dice", "Timer", "Speed", "Light", "Windows", "Find", "Keyboard", "Language", "Rickroll", "AI", "GPU", "Sleep"],
     "es": ["Desplazar", "Volumen", "Brillo", "Zoom", "Vídeo", "Pestañas", "Flechas", "Casa", "Apagar",
-           "Dado", "Temporiz.", "Velocidad", "Luz", "Ventanas", "Buscar", "Teclado", "Idioma", "Rickroll", "IA", "GPU"],
+           "Dado", "Temporiz.", "Velocidad", "Luz", "Ventanas", "Buscar", "Teclado", "Idioma", "Rickroll", "IA", "GPU", "Sueño"],
     "it": ["Scorri", "Volume", "Luminosità", "Zoom", "Video", "Schede", "Frecce", "Casa", "Arresta",
-           "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera", "Lingua", "Rickroll", "AI", "GPU"],
+           "Dado", "Timer", "Velocità", "Luce", "Finestre", "Trova", "Tastiera", "Lingua", "Rickroll", "AI", "GPU", "Sospendi"],
 }
 # default order of the radial menu
 DEFAULT_ORDER = ["scroll", "volume", "brightness", "keylight", "night", "zoom", "video", "speed", "timer", "ai",
-                 "tabs", "find", "windows", "arrows", "dice", "house", "rick", "language", "gpu", "power"]
+                 "tabs", "find", "windows", "arrows", "dice", "house", "rick", "language", "gpu", "suspend", "power"]
 BROWSER_ONLY_IDS = ("tabs", "find")
 
 # Look of the radial menu and of the on-screen messages (see asus_dial_theme.py for the drawing)

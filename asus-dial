@@ -39,7 +39,7 @@ MENU_TIMEOUT_MS = 10000
 MENU_SIZE = 560
 HOLD_MS = 350
 PRESS_ROTATE_UNITS = 5  # total travel while pressed that opens the menu (net is noisy under pressure)
-SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE, RICK, AI, GPU = range(20)
+SCROLL, VOLUME, BRIGHT, ZOOM, VIDEO, TABS, ARROWS, HOUSE, POWER, DICE, TIMER, SPEED, NIGHT, WINDOWS, FIND, KEYLIGHT, LANGUAGE, RICK, AI, GPU, SUSPEND = range(21)
 ID_TO_TOOL = {i: n for n, i in enumerate(acfg.BUILTIN_IDS)}  # built-in mode id -> tool number (same order as above)
 CUSTOM_BASE = 1000  # custom modes are numbered CUSTOM_BASE + their index in the config
 ICONS, NAMES_L = acfg.ICONS, acfg.NAMES_L
@@ -67,6 +67,11 @@ STR = {
     "power_rotate": ("⏻ Rotate to shut the system down", "⏻ Gira para apagar el sistema", "⏻ Ruota per arrestare il sistema"),
     "power_count": ("⏻ Shutting down in {n} s — click or rotate to cancel", "⏻ Apagado en {n} s — clic o giro para cancelar",
                     "⏻ Arresto tra {n} s — clic o rotazione per annullare"),
+    "suspend_hint": ("😴 Click to sleep (3 s, any turn or click cancels)", "😴 Clic para suspender (3 s, cualquier giro o clic cancela)",
+                     "😴 Clic per sospendere (3 s, un giro o un clic annulla)"),
+    "suspend_count": ("😴 Sleeping in {n} s — click or rotate to cancel", "😴 Suspendiendo en {n} s — clic o giro para cancelar",
+                      "😴 Sospensione tra {n} s — clic o giro per annullare"),
+    "suspend_cancel": ("😴 Sleep cancelled", "😴 Suspensión cancelada", "😴 Sospensione annullata"),
     "power_cancel": ("⏻ Shutdown cancelled", "⏻ Apagado cancelado", "⏻ Arresto annullato"),
     "keylight_na": ("⌨ Keyboard backlight not available", "⌨ Retroiluminación no disponible", "⌨ Retroilluminazione non disponibile"),
     "keylight_level": ("⌨ Keyboard backlight level {l}/{m}", "⌨ Retroiluminación nivel {l}/{m}", "⌨ Retroilluminazione livello {l}/{m}"),
@@ -145,6 +150,8 @@ POWER_ARM_UNITS = 45  # ~5 detents clockwise to arm the shutdown
 POWER_COUNTDOWN_S = 5
 POWER_GRACE_S = 0.8
 POWER_CMD = ["systemctl", "poweroff"]
+SUSPEND_CMD = ["systemctl", "suspend"]
+SUSPEND_COUNTDOWN_S = 3
 STATE_FILE = os.path.expanduser("~/.config/asus-dial.tool")
 BROWSER_ONLY = {ID_TO_TOOL[i] for i in acfg.BROWSER_ONLY_IDS}  # tools shown/usable only while a browser has the focus
 BROWSER_CLASSES = ("firefox", "chrome", "chromium", "brave", "vivaldi", "opera", "msedge", "microsoft-edge",
@@ -937,7 +944,7 @@ class Overlay(Gtk.Window):
 class Dial:
     # dial units needed per step of each tool; one physical detent is ~8-10 units
     STEP = {SCROLL: 6, VOLUME: 8, BRIGHT: 8, ZOOM: 8, VIDEO: 8, TABS: 8, ARROWS: 8,
-            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8, RICK: 8, AI: 8, GPU: 8}
+            DICE: 8, TIMER: 8, SPEED: 8, NIGHT: 8, WINDOWS: 8, FIND: 8, KEYLIGHT: 8, LANGUAGE: 8, RICK: 8, AI: 8, GPU: 8, SUSPEND: 8}
 
     def __init__(self, args):
         self.args = args
@@ -964,6 +971,7 @@ class Dial:
         self.power_progress = 0.0
         self.power_left = 0
         self.power_id = 0
+        self.power_cmd, self.power_total, self.power_key = POWER_CMD, POWER_COUNTDOWN_S, "power"
         self.press_travel = 0
         self.hold_fired = False
         self.hold_moved = False
@@ -1298,6 +1306,8 @@ class Dial:
             self.show_label(L("rick_hint"))
         elif tool == GPU:
             self.gpu_step(d)
+        elif tool == SUSPEND:
+            self.show_label(L("suspend_hint"))
         elif tool == AI:
             self.ai_level = max(0, min(len(AI_LEVELS) - 1, self.ai_level + d))
             self.save_ai_level()
@@ -1353,6 +1363,8 @@ class Dial:
             self.ai_start()
         elif tool == GPU:
             self.gpu_click()
+        elif tool == SUSPEND:
+            self.start_power_countdown(SUSPEND_CMD, SUSPEND_COUNTDOWN_S, "suspend")
         elif tool == KEYLIGHT:
             self.keylight_last = self.keylight_last if self.get_keylight() == 0 else self.get_keylight()
             self.set_keylight(self.keylight_last if self.get_keylight() == 0 else 0)
@@ -1548,8 +1560,9 @@ class Dial:
         else:
             self.show_label(L("power_rotate"), self.power_progress / POWER_ARM_UNITS)
 
-    def start_power_countdown(self):
-        self.power_left = POWER_COUNTDOWN_S
+    def start_power_countdown(self, cmd=POWER_CMD, seconds=POWER_COUNTDOWN_S, key="power"):
+        self.power_cmd, self.power_total, self.power_key = cmd, seconds, key
+        self.power_left = seconds
         self.power_started = GLib.get_monotonic_time() / 1e6
         self.power_progress = 0.0
         self.power_tick()
@@ -1558,9 +1571,9 @@ class Dial:
     def power_tick(self):
         if self.power_left <= 0:
             self.power_id = 0
-            subprocess.Popen(POWER_CMD)
+            subprocess.Popen(self.power_cmd)
             return False
-        self.show_label(L("power_count", n=self.power_left), self.power_left / POWER_COUNTDOWN_S)
+        self.show_label(L(self.power_key + "_count", n=self.power_left), self.power_left / self.power_total)
         self.power_left -= 1
         return True
 
@@ -1569,7 +1582,7 @@ class Dial:
             GLib.source_remove(self.power_id)
             self.power_id = 0
         self.power_progress = 0.0
-        self.show_label(L("power_cancel"))
+        self.show_label(L(self.power_key + "_cancel"))
 
     # --- house picture ---
     def show_house(self, delta):
@@ -2157,13 +2170,17 @@ class Dial:
         self.gpu_click()
         return {"gpu": pick["name"]}
 
+    def api_suspend(self, _a):
+        """Sleep, after the same 3 seconds as the wheel's mode (turning or clicking the wheel cancels it)."""
+        self.start_power_countdown(SUSPEND_CMD, SUSPEND_COUNTDOWN_S, "suspend")
+
     def api_lock(self, _a):
         subprocess.run(["loginctl", "lock-session"], timeout=5)
 
     def api_mode(self, a):
         """Puts the wheel in one of its modes (volume, brightness, zoom, ...), as the radial menu does."""
         mid = a.get("name", "")
-        if mid not in ID_TO_TOOL or mid in ("power", "rick"):
+        if mid not in ID_TO_TOOL or mid in ("power", "rick", "suspend"):
             raise ValueError("unknown or not allowed mode")
         self.set_tool(ID_TO_TOOL[mid])
         self.save_tool()

@@ -45,6 +45,7 @@ The kernel creates no input device for the dial. This program reads the raw data
 | ✨ **Rickroll** | – | a divine light show, then your default browser opens the video full screen |
 | 🌐 **Language** | cycles English → Español → Italiano (default: English) | shows the current language |
 | 🎮 **GPU** | picks one of the PC's graphics cards (only shown if the PC has two or more) | the card and whether it is integrated or dedicated; click makes your apps use it |
+| 😴 **Sleep** | — | click starts a 3-second countdown, then the PC suspends; turning or clicking the wheel cancels it |
 | ⏻ **Power off** | keep rotating clockwise to arm a 5-second shutdown countdown | – |
 
 **Context-aware modes.** *Tabs* and *Find* show up in the menu only while the active window is a browser (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Outside a browser they disappear, and if one of them was your chosen mode the dial behaves like *Scroll* until you are back in the browser.
@@ -231,6 +232,7 @@ El kernel no crea ningún dispositivo de entrada para la rueda. Este programa le
 | ✨ **Rickroll** | – | un espectáculo de luz divina y luego tu navegador predeterminado abre el vídeo a pantalla completa |
 | 🌐 **Idioma** | cambia entre English → Español → Italiano (por defecto: English) | muestra el idioma actual |
 | 🎮 **GPU** | elige una de las tarjetas gráficas del PC (solo aparece si el PC tiene dos o más) | la tarjeta y si es integrada o dedicada; el clic hace que tus apps la usen |
+| 😴 **Suspender** | — | el clic inicia una cuenta atrás de 3 s y el PC se suspende; girar o hacer clic en la rueda la cancela |
 | ⏻ **Apagar** | sigue girando en sentido horario para activar una cuenta atrás de 5 segundos | – |
 
 **Modos según el contexto.** *Pestañas* y *Buscar* aparecen en el menú solo cuando la ventana activa es un navegador (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Fuera del navegador desaparecen, y si uno de ellos era el modo elegido, la rueda se comporta como *Desplazar* hasta que vuelvas al navegador.
@@ -417,6 +419,7 @@ Il kernel non crea nessun dispositivo di input per la manopola. Questo programma
 | ✨ **Rickroll** | – | uno spettacolo di luce divina, poi il browser predefinito apre il video a schermo intero |
 | 🌐 **Lingua** | passa da English → Español → Italiano (predefinita: English) | mostra la lingua attuale |
 | 🎮 **GPU** | sceglie una delle schede grafiche del PC (compare solo se il PC ne ha due o più) | la scheda e se è integrata o dedicata; il clic fa usare quella alle tue app |
+| 😴 **Sospendi** | — | il clic avvia un conto alla rovescia di 3 s e il PC va in sospensione; girare o cliccare la manopola annulla |
 | ⏻ **Arresta** | ruotando a lungo in senso orario spegne il PC dopo un conto alla rovescia di 5 secondi | – |
 
 **Modalità che dipendono dal contesto.** *Schede* e *Trova* compaiono nel menu solo quando la finestra attiva è un browser (Firefox, Chrome, Chromium, Brave, Vivaldi, Opera, Edge, LibreWolf, Epiphany, Zen, Floorp, Waterfox, Tor Browser). Fuori dal browser spariscono, e se erano la modalità scelta la manopola si comporta come *Scorri* finché non torni nel browser.
